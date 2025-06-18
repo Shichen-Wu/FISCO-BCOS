@@ -22,7 +22,9 @@
 #include "bcos-pbft/core/StateMachine.h"
 #include "engine/Validator.h"
 #include "protocol/PB/PBFTCodec.h"
+#include "bcos-mvba/bcos-mvba/protocol/MVBACodec.h"
 #include "protocol/PB/PBFTMessageFactoryImpl.h"
+#include "bcos-mvba/bcos-mvba/protocol/MVBAMessageFactoryImpl.h"
 #include "storage/LedgerStorage.h"
 #include "utilities/Common.h"
 #include <memory>
@@ -57,6 +59,10 @@ PBFTImpl::Ptr PBFTFactory::createPBFT()
     PBFT_LOG(INFO) << LOG_DESC("create PBFTCodec");
     auto pbftCodec = std::make_shared<PBFTCodec>(m_keyPair, m_cryptoSuite, pbftMessageFactory);
 
+    auto mvbaMessageFactory = std::make_shared<MVBAMessageFactoryImpl>();
+    PBFT_LOG(INFO) << LOG_DESC("create MVBACodec");
+    auto mvbaCodec = std::make_shared<MVBACodec>(m_keyPair, m_cryptoSuite, mvbaMessageFactory);
+
     PBFT_LOG(INFO) << LOG_DESC("create PBFT validator");
     auto validator = std::make_shared<TxsValidator>(m_txpool, m_blockFactory, m_txResultFactory);
 
@@ -69,7 +75,7 @@ PBFTImpl::Ptr PBFTFactory::createPBFT()
 
     PBFT_LOG(INFO) << LOG_DESC("create pbftConfig");
     PBFTConfig::Ptr pbftConfig =
-        std::make_shared<PBFTConfig>(m_cryptoSuite, m_keyPair, pbftMessageFactory, pbftCodec,
+        std::make_shared<PBFTConfig>(m_cryptoSuite, m_keyPair, pbftMessageFactory, mvbaCodec, pbftCodec,
             validator, m_frontService, stateMachine, pbftStorage, m_blockFactory);
 
     PBFT_LOG(INFO) << LOG_DESC("create PBFTEngine");

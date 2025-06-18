@@ -13,17 +13,32 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  *
- * @brief data type for consensus module
- * @file ConsensusTypeDef.h
+ * @file Common.h
  * @author: yujiechen
- * @date 2021-04-09
+ * @date 2024-12-15
  */
 #pragma once
-#include <bcos-crypto/interfaces/crypto/KeyInterface.h>
+#include <bcos-framework/Common.h>
+#include <bcos-utilities/Exceptions.h>
+#include <stdint.h>
+
+#define MVBA_LOG(LEVEL) BCOS_LOG(LEVEL) << LOG_BADGE("CONSENSUS") << LOG_BADGE("MVBA")
+#define MVBA_STORAGE_LOG(LEVEL) \
+    BCOS_LOG(LEVEL) << LOG_BADGE("CONSENSUS") << LOG_BADGE("MVBA") << LOG_BADGE("STORAGE")
+
 namespace bcos::consensus
 {
-using IndexType = uint64_t;
-using ViewType = uint64_t;
-using EpochIndexType = uint64_t;
-const ViewType MaxView = std::numeric_limits<ViewType>::max() / 2;
-}  // namespace bcos
+enum MVBAPacketType : uint32_t
+{
+    ActivePacket = 0x10,
+    ActiveEchoPacket = 0x11,
+    LockPacket = 0x12,
+    LockEchoPacket = 0x13,
+    FinishPacket = 0x14,
+    PrevotePacket = 0x15,
+    VotePacket = 0x16,
+};
+
+DERIVE_BCOS_EXCEPTION(UnknownMVBAMsgType);
+DERIVE_BCOS_EXCEPTION(InitMVBAException);
+}  // namespace bcos::consensus

@@ -25,6 +25,7 @@
 #include "bcos-pbft/pbft/engine/PBFTTimer.h"
 #include "bcos-pbft/pbft/engine/Validator.h"
 #include "bcos-pbft/pbft/interfaces/PBFTCodecInterface.h"
+#include "bcos-mvba/bcos-mvba/interfaces/MVBACodecInterface.h"
 #include "bcos-pbft/pbft/interfaces/PBFTMessageFactory.h"
 #include "bcos-pbft/pbft/interfaces/PBFTStorage.h"
 #include "bcos-pbft/pbft/utilities/Common.h"
@@ -42,6 +43,7 @@ public:
     PBFTConfig(bcos::crypto::CryptoSuite::Ptr _cryptoSuite,
         bcos::crypto::KeyPairInterface::Ptr _keyPair,
         std::shared_ptr<PBFTMessageFactory> _pbftMessageFactory,
+        std::shared_ptr<MVBACodecInterface> _mvbaCodec,
         std::shared_ptr<PBFTCodecInterface> _codec, std::shared_ptr<ValidatorInterface> _validator,
         std::shared_ptr<bcos::front::FrontServiceInterface> _frontService,
         StateMachineInterface::Ptr _stateMachine, PBFTStorage::Ptr _storage,
@@ -50,6 +52,7 @@ public:
         m_cryptoSuite(std::move(_cryptoSuite)),
         m_pbftMessageFactory(std::move(_pbftMessageFactory)),
         m_codec(std::move(_codec)),
+        m_mvbaCodec(std::move(_mvbaCodec)),
         m_validator(std::move(_validator)),
         m_frontService(std::move(_frontService)),
         m_stateMachine(std::move(_stateMachine)),
@@ -123,6 +126,7 @@ public:
     std::shared_ptr<PBFTMessageFactory> pbftMessageFactory() { return m_pbftMessageFactory; }
     std::shared_ptr<bcos::front::FrontServiceInterface> frontService() { return m_frontService; }
     std::shared_ptr<PBFTCodecInterface> codec() { return m_codec; }
+    std::shared_ptr<MVBACodecInterface> mvbaCodec() { return m_mvbaCodec; }
 
     PBFTProposalInterface::Ptr populateCommittedProposal();
     unsigned pbftMsgDefaultVersion() const { return c_pbftMsgDefaultVersion; }
@@ -423,6 +427,7 @@ protected:
     std::shared_ptr<PBFTMessageFactory> m_pbftMessageFactory;
     // Codec for serialization/deserialization of PBFT message packets
     std::shared_ptr<PBFTCodecInterface> m_codec;
+    std::shared_ptr<MVBACodecInterface> m_mvbaCodec;
     // Proposal validator
     std::shared_ptr<ValidatorInterface> m_validator;
     // FrontService, used to send/receive P2P message packages

@@ -13,17 +13,28 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  *
- * @brief data type for consensus module
- * @file ConsensusTypeDef.h
+ * @brief factory for MVBACache
+ * @file MVBACacheFactory.h
  * @author: yujiechen
- * @date 2021-04-09
+ * @date 2021-06-01
  */
 #pragma once
-#include <bcos-crypto/interfaces/crypto/KeyInterface.h>
+#include "MVBACache.h"
 namespace bcos::consensus
 {
-using IndexType = uint64_t;
-using ViewType = uint64_t;
-using EpochIndexType = uint64_t;
-const ViewType MaxView = std::numeric_limits<ViewType>::max() / 2;
-}  // namespace bcos
+class MVBACacheFactory
+{
+public:
+    using Ptr = std::shared_ptr<MVBACacheFactory>;
+    MVBACacheFactory() = default;
+    virtual ~MVBACacheFactory() = default;
+
+    virtual MVBACache::Ptr createMVBACache(PBFTConfig::Ptr _config,
+        bcos::protocol::EpochIndexType _index)
+    {
+        auto cache = std::make_shared<MVBACache>(_config, _index);
+        //cache->registerCommittedIndexNotify(_committedIndexNotifier);
+        return cache;
+    }
+};
+}  // namespace bcos::consensus

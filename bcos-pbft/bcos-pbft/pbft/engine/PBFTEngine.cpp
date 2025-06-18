@@ -46,6 +46,7 @@ PBFTEngine::PBFTEngine(PBFTConfig::Ptr _config)
 {
     auto cacheFactory = std::make_shared<PBFTCacheFactory>();
     m_cacheProcessor = std::make_shared<PBFTCacheProcessor>(cacheFactory, _config);
+    m_mvbaProcessor = std::make_shared<MVBAProcessor>(_config);
     m_logSync = std::make_shared<PBFTLogSync>(m_config, m_cacheProcessor);
     // register the timeout function
     m_config->timer()->registerTimeoutHandler(boost::bind(&PBFTEngine::onTimeout, this));
@@ -504,6 +505,15 @@ void PBFTEngine::onReceivePBFTMessage(Error::Ptr _error, NodeIDPtr _fromNode, by
         {
             return;
         }
+
+        // 判断消息类型
+        if (isMVBAMessage(_data))
+        {
+            // 如果是MVBA消息，交给MVBA处理器处理
+            onReceiveMVBAMessage(_error, _fromNode, _data, _sendResponseCallback);
+            return;
+        }
+
         // the node is not the consensusNode
         if (!m_config->isConsensusNode())
         {
@@ -554,6 +564,69 @@ void PBFTEngine::onReceivePBFTMessage(Error::Ptr _error, NodeIDPtr _fromNode, by
                           << LOG_KV("Idx", m_config->nodeIndex())
                           << LOG_KV("nodeId", m_config->nodeID()->hex())
                           << LOG_KV("message", boost::diagnostic_information(_e));
+    }
+}
+
+bool PBFTEngine::isMVBAMessage(bytesConstRef _data) const
+{
+    try
+    {
+        auto pbMessage = std::make_shared<RawMessage>();
+        bcos::protocol::decodePBObject(pbMessage, _data);
+        
+        MVBAPacketType packetType = (MVBAPacketType)(pbMessage->type());
+        
+        // 根据你的MVBACodec.cpp中的switch case来判断
+        switch (packetType)
+        {
+        case MVBAPacketType::ActivePacket:
+        case MVBAPacketType::LockPacket:
+        case MVBAPacketType::FinishPacket:
+        case MVBAPacketType::ActiveEchoPacket:
+        case MVBAPacketType::LockEchoPacket:
+        case MVBAPacketType::PrevotePacket:
+        case MVBAPacketType::VotePacket:
+            return true;
+        default:
+            return false;
+        }
+    }
+    catch (std::exception const& e)
+    {
+        PBFT_LOG(TRACE) << LOG_DESC("isMVBAMessage: failed to parse message type")
+                        << LOG_KV("error", boost::diagnostic_information(e));
+        return false;
+    }
+}
+
+void PBFTEngine::onReceiveMVBAMessage(Error::Ptr _error, NodeIDPtr _fromNode, bytesConstRef _data,
+                                     SendResponseCallback _sendResponseCallback)
+{
+    try
+    {
+        if (_error != nullptr)
+        {
+            return;
+        }
+        
+        // Todo:检查节点
+
+        // 使用MVBACodec解码消息
+        auto mvbaMsg = m_config->mvbaCodec()->decode(_data);
+        mvbaMsg->setFrom(_fromNode);
+        
+        
+        PBFT_LOG(TRACE) << LOG_DESC("onReceiveMVBAMessage: received MVBA message")
+                        << LOG_KV("packetType", (int32_t)mvbaMsg->packetType())
+                        << LOG_KV("fromNode", _fromNode->hex());
+
+        m_mvbaProcessor->handleMVBAMessage(mvbaMsg);
+    }
+    catch (std::exception const& e)
+    {
+        PBFT_LOG(WARNING) << LOG_DESC("onReceiveMVBAMessage exception")
+                          << LOG_KV("fromNode", _fromNode->hex())
+                          << LOG_KV("error", boost::diagnostic_information(e));
     }
 }
 

@@ -1,7 +1,7 @@
 #------------------------------------------------------------------------------
-# Top-level CMake file for bcos-pbft
+# Top-level CMake file for bcos-mvba
 # ------------------------------------------------------------------------------
-# Copyright (C) 2021 bcos-pbft
+# Copyright (C) 2021 bcos-mvba
 # SPDX-License-Identifier: Apache-2.0
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,13 +15,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #------------------------------------------------------------------------------
-project(bcos-pbft VERSION ${VERSION})
+project(bcos-mvba VERSION ${VERSION})
 
 # proto generation
-set(PROTO_INPUT_PATH ${CMAKE_SOURCE_DIR}/bcos-pbft)
+set(PROTO_INPUT_PATH ${CMAKE_SOURCE_DIR}/bcos-mvba)
 set(PROTO_OUTPUT_PATH ${CMAKE_CURRENT_BINARY_DIR}/)
 
-set(MESSAGES_PROTOS bcos-pbft/core/proto/Consensus.proto bcos-pbft/pbft/protocol/proto/PBFT.proto)
+set(MESSAGES_PROTOS bcos-mvba/protocol/MVBA.proto)
 foreach(proto_file ${MESSAGES_PROTOS})
     get_filename_component(bcos_proto_abs "${PROTO_INPUT_PATH}" ABSOLUTE)
     set(proto_file_abs ${bcos_proto_abs}/${proto_file})
@@ -45,14 +45,13 @@ include_directories(${PROTO_OUTPUT_PATH})
 find_package(Protobuf CONFIG REQUIRED)
 find_package(jsoncpp CONFIG REQUIRED)
 
-file(GLOB_RECURSE SRCS bcos-pbft/*.cpp)
-add_library(${PBFT_TARGET} ${SRCS} ${MESSAGES_SRCS})
-target_link_libraries(${PBFT_TARGET} PUBLIC ${TXPOOL_TARGET} ${LEDGER_TARGET} ${UTILITIES_TARGET} ${TOOL_TARGET} ${MVBA_TARGET} bcos-framework jsoncpp_static)
+file(GLOB_RECURSE SRCS bcos-mvba/*.cpp)
+add_library(${MVBA_TARGET} ${SRCS} ${MESSAGES_SRCS})
+target_link_libraries(${MVBA_TARGET} PUBLIC ${TXPOOL_TARGET} ${LEDGER_TARGET} ${UTILITIES_TARGET} ${TOOL_TARGET} ${PBFT_TARGET} bcos-framework jsoncpp_static)
 set_source_files_properties(
-    "bcos-pbft/pbft/protocol/proto/PBFT.pb.cc"
-    "bcos-pbft/core/proto/Consensus.pb.cc"
+    "bcos-mvba/protocol/MVBA.pb.cc"
     PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
-set_target_properties(${PBFT_TARGET} PROPERTIES UNITY_BUILD "ON")
+set_target_properties(${MVBA_TARGET} PROPERTIES UNITY_BUILD "ON")
 
 if (TESTS)
     # fetch bcos-test
