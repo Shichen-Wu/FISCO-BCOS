@@ -2,7 +2,7 @@ syntax = "proto3";
 package bcos.consensus;
 
 // PBFT 调用 MVBA 的输入数据结构 - 混淆证明
-message EquivocationProof {
+message RawEquivocationProof {
     int32 version = 1;
     repeated int64 maliciousNodeIndexes = 2;    // 恶意节点索引列表
     repeated bytes mainChainSignatures = 3;  // 主链区块签名集合
@@ -13,7 +13,7 @@ message EquivocationProof {
     bytes additionalData = 8;                   // 其他附加数据
 }
 
-message BaseMessage
+message MVBARawBaseMessage
 {
   int32 version = 1;
   int64 index = 2;
@@ -33,7 +33,7 @@ message MVBARawProposal {
     int64 index = 1;                           // MVBA 轮次
     int32 round = 2;                           // MVBA 阶段
     int64 sealerId = 3;                        // 提案发起人
-    EquivocationProof mvbaInput = 4;           // 调用MVBA的初始输入值                       
+    RawEquivocationProof mvbaInput = 4;        // 调用MVBA的初始输入值                       
     
     //certificate for the MVBA proposal
     bytes payloadHash = 5;                     // 证书的payload，在active中是mvbaInput的hash值，在lock中是active消息的hash，在finish中是lock的hash
@@ -53,7 +53,7 @@ message MVBARawEcho {
 
 // MVBA 消息结构
 message MVBARawMessage {
-    bytes hashFieldsData = 1;                  // 复用
+    bytes hashFieldsData = 1;                  
     MVBARawProposal mvbaProposal = 2;          // MVBA 提案，消息为相应时该字段为空
     repeated MVBARawProposal proposals = 3;    // 多个提案（用于批处理，默认为空）
     MVBARawEcho mvbaEcho = 4;              // MVBA响应签名投票，消息为提案时该字段为空
@@ -61,7 +61,7 @@ message MVBARawMessage {
 }
 
 
-message RawMessage
+message RawMessageMVBA
 {
   int32 version = 1;
   int32 type = 2;

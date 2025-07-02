@@ -40,11 +40,11 @@ MVBAProcessor::MVBAProcessor(PBFTConfig::Ptr _config)
     m_messageFactory = std::make_shared<MVBAMessageFactoryImpl>();
     
     // 创建缓存处理器
-    auto cacheFactory = std::make_shared<MVBACacheFactory>(m_config);
+    auto cacheFactory = std::make_shared<MVBACacheFactory>();
     m_cacheProcessor = std::make_shared<MVBACacheProcessor>(m_config, cacheFactory);
     
     MVBA_LOG(INFO) << LOG_DESC("MVBAProcessor constructed") 
-                   << LOG_KV("nodeIndex", m_config->nodeIndex())
+                   << LOG_KV("nodeIndex", m_config->observerNodeIndex())
                    << LOG_KV("nodeId", m_config->nodeID()->hex());
 }
 
@@ -140,12 +140,7 @@ void MVBAProcessor::reset()
     
     // 重置状态
     m_currentIndex = 0;
-    m_currentRound = 0;
     
-    {
-        std::unique_lock<std::shared_mutex> inputLock(m_currentInputMutex);
-        m_currentInput.clear();
-    }
     
     // 清空消息队列
     {
@@ -246,6 +241,10 @@ void MVBAProcessor::processMessageQueue()
         // 处理消息
         if (msg)
         {
+            if (m_cacheProcessor->isInvalidMVBAIndex(msg->index())){
+                MVBA_LOG(INFO) << LOG_DESC("Index is outdated");
+                continue;
+            }
             try
             {
                 switch (msg->packetType())
@@ -267,6 +266,9 @@ void MVBAProcessor::processMessageQueue()
                 case MVBAPacketType::FinishPacket:
                     m_cacheProcessor->processFinishMessage(msg);
                     m_totalFinishMessages.fetch_add(1);
+                    break;
+                case MVBAPacketType::NotifyFinishedPacket:
+                    m_cacheProcessor->updateFinishedState(msg);
                     break;
                 case MVBAPacketType::PrevotePacket:
                     // TODO: 实现prevote消息处理
@@ -294,28 +296,129 @@ void MVBAProcessor::processMessageQueue()
     MVBA_LOG(INFO) << LOG_DESC("MVBAProcessor message processing thread stopped");
 }
 
-void MVBAProcessor::startMVBAInstance(EpochIndexType _index, RoundType _round, bytesConstRef _input)
+void MVBAProcessor::mockAndStartMVBAInstance()
+{
+    if (m_config->isConsensusNode())
+    {
+        MVBA_LOG(INFO) << LOG_DESC("Node is not observer node");
+        return ;
+    }
+
+    m_currentIndex++;
+    
+    auto totalNodeNum = m_config->consensusNodesNum(); 
+    
+    uint64_t vectorSize = (totalNodeNum - 1) / 3 + 1; 
+    
+    // Mock EquivocationProof
+    auto equivocationProof = std::make_shared<EquivocationProof>();
+     
+    equivocationProof->setVersion(1);
+    equivocationProof->setConflictBlockNumber(945);
+    equivocationProof->setRollbackBlockNumber(944); 
+    equivocationProof->setSequentialEpoch(34);
+
+    uint64_t fixedSeed = 12345678ULL + m_currentIndex; 
+    std::mt19937 gen(fixedSeed);
+    
+    // Mock malicious node indexes 
+    std::vector<int64_t> maliciousNodes;
+    std::uniform_int_distribution<int64_t> nodeIndexDis(0, static_cast<int64_t>(totalNodeNum - 1));
+    std::set<int64_t> uniqueNodes; // 确保节点索引不重复
+
+    while (uniqueNodes.size() < vectorSize) {
+        uniqueNodes.insert(nodeIndexDis(gen));
+    }
+    maliciousNodes.assign(uniqueNodes.begin(), uniqueNodes.end());
+    equivocationProof->setMaliciousNodeIndexes(maliciousNodes);
+
+    // Mock main chain signatures 
+    std::vector<bytes> mainChainSigs;
+    std::uniform_int_distribution<int> byteDis(0, 255);
+
+    for (size_t i = 0; i < vectorSize; ++i) {
+        bytes sig(64); // 64字节签名
+        for (size_t j = 0; j < 64; ++j) {
+            sig[j] = static_cast<byte>(byteDis(gen));
+        }
+        mainChainSigs.push_back(std::move(sig));
+    }
+    equivocationProof->setMainChainSignatures(mainChainSigs);
+
+    // Mock conflict signatures 
+    std::vector<bytes> conflictSigs;
+    for (size_t i = 0; i < vectorSize; ++i) {
+        bytes sig(64); // 64字节签名
+        for (size_t j = 0; j < 64; ++j) {
+            sig[j] = static_cast<byte>(byteDis(gen));
+        }
+        conflictSigs.push_back(std::move(sig));
+    }
+    equivocationProof->setConflictSignatures(conflictSigs);
+    
+    // Mock hash
+    // bcos::crypto::HashType inputHash;
+    // std::string mockData = "mock_mvba_input_data_" + std::to_string(m_currentIndex);
+    // memcpy(inputHash.data(), mockData.c_str(), std::min(mockData.length(), size_t(32)));
+
+    bytesPointer epPayload = {};
+    epPayload = equivocationProof->encode();
+    auto inputHash = m_config->cryptoSuite()->hashImpl()->hash(*epPayload);
+
+    
+    MVBA_LOG(INFO) << LOG_DESC("Mock MVBA Data Generated")
+                   << LOG_KV("totalNodeCount", totalNodeNum)
+                   << LOG_KV("vectorSize", vectorSize)
+                   << LOG_KV("epochIndex", m_currentIndex)
+                   << LOG_KV("version", equivocationProof->version())
+                   << LOG_KV("conflictBlockNumber", equivocationProof->conflictBlockNumber())
+                   << LOG_KV("rollbackBlockNumber", equivocationProof->rollbackBlockNumber())
+                   << LOG_KV("sequentialEpoch", equivocationProof->sequentialEpoch())
+                   << LOG_KV("maliciousNodeCount", equivocationProof->maliciousNodeIndexes().size())
+                   << LOG_KV("mainChainSigCount", equivocationProof->mainChainSignatures().size())
+                   << LOG_KV("conflictSigCount", equivocationProof->conflictSignatures().size())
+                   << LOG_KV("Hash", inputHash.hex());
+    
+    startMVBAInstance(m_currentIndex, equivocationProof, inputHash);
+
+}
+
+void MVBAProcessor::startMVBAInstance(EpochIndexType _index, EquivocationProof::Ptr _input, bcos::crypto::HashType _inputHash)
 {
     std::unique_lock<std::shared_mutex> lock(m_mutex);
     
-    MVBA_LOG(INFO) << LOG_DESC("startMVBAInstance")
-                   << LOG_KV("index", _index)
-                   << LOG_KV("round", _round)
-                   << LOG_KV("inputSize", _input.size());
+    MVBA_LOG(INFO) << LOG_DESC("startMVBAInstance");
     
     // 更新当前实例状态
     m_currentIndex = _index;
-    m_currentRound = _round;
-    
-    {
-        std::unique_lock<std::shared_mutex> inputLock(m_currentInputMutex);
-        m_currentInput.assign(_input.begin(), _input.end());
-    }
     
     // 启动实例定时器
     startInstanceTimer(_index);
+
     
-    // 开始MVBA协议 - 广播Active消息
+    // 开始MVBA协议 - 传递给Cache Processor， 广播Active消息
+    auto initialProposal = m_config->mvbaMessageFactory()->createMVBAProposal();
+    initialProposal->setIndex(_index);
+    initialProposal->setSealerId(m_config->observerNodeIndex()); // 使用自己的sealerId
+    initialProposal->setPayloadHash(_inputHash);
+    initialProposal->setMvbaInput(_input);
+
+    // 创建Active消息
+    auto initialActiveMsg = m_config->mvbaMessageFactory()->populateFrom(
+        MVBAPacketType::ActivePacket,
+        m_config->mvbaMsgDefaultVersion(),
+        m_config->view(), 
+        utcTime(),
+        m_config->observerNodeIndex(),
+        initialProposal,
+        m_config->cryptoSuite(),
+        m_config->keyPair(),
+        true,  // active = true
+        false  // needProof = false
+    );
+
+    m_cacheProcessor->processActiveMessage(initialActiveMsg);
+
     //tryBroadcastActive(_index, _round);
 }
 

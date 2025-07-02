@@ -21,7 +21,6 @@
 #include "MVBAMessage.h"
 #include "MVBAProposal.h"
 #include "MVBAEcho.h"
-#include "bcos-mvba/core/Proposal.h"
 #include <utility>
 
 using namespace bcos;

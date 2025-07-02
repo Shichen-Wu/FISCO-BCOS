@@ -32,6 +32,13 @@ ConsensusNodeList ConsensusConfig::consensusNodeList() const
     return m_consensusNodeList;
 }
 
+ConsensusNodeList ConsensusConfig::observerNodeList() const
+{
+    ReadGuard lock(x_observerNodeList);
+    return m_observerNodeList;
+}
+
+
 NodeIDs ConsensusConfig::consensusNodeIDList(bool _excludeSelf) const
 {
     ReadGuard lock(x_consensusNodeList);
@@ -74,6 +81,14 @@ void ConsensusConfig::setObserverNodeList(ConsensusNodeList _observerNodeList)
         m_observerNodeList = std::move(_observerNodeList);
         m_observerNodeListUpdated = true;
     }
+
+    // update the observerNodeIndex
+    auto nodeIndex = getObserverNodeIndexByNodeID(m_keyPair->publicKey());
+    if (nodeIndex != m_observerNodeIndex)
+    {
+        m_observerNodeIndex.store(nodeIndex);
+    }
+
 }
 
 void ConsensusConfig::setConsensusNodeList(ConsensusNodeList _consensusNodeList)
@@ -119,6 +134,7 @@ void ConsensusConfig::setConsensusNodeList(ConsensusNodeList _consensusNodeList)
                         << decsConsensusNodeList(_consensusNodeList);
 }
 
+
 IndexType ConsensusConfig::getNodeIndexByNodeID(bcos::crypto::PublicPtr _nodeID)
 {
     ReadGuard lock(x_consensusNodeList);
@@ -145,6 +161,37 @@ ConsensusNode* ConsensusConfig::getConsensusNodeByIndex(IndexType _nodeIndex)
     }
     return {};
 }
+
+IndexType ConsensusConfig::getObserverNodeIndexByNodeID(bcos::crypto::PublicPtr _nodeID)
+{
+    ReadGuard lock(x_observerNodeList);
+    IndexType nodeIndex = NON_CONSENSUS_NODE;
+    IndexType i = 0;
+    for (const auto& _observerNode : m_observerNodeList)
+    {
+        if (_observerNode.nodeID->data() == _nodeID->data())
+        {
+            nodeIndex = i;
+            break;
+        }
+        i++;
+    }
+    return nodeIndex;
+}
+
+ConsensusNode* ConsensusConfig::getObserverNodeByIndex(IndexType _nodeIndex)
+{
+    ReadGuard lock(x_observerNodeList);
+    if (_nodeIndex < m_observerNodeList.size())
+    {
+        return std::addressof((m_observerNodeList)[_nodeIndex]);
+    }
+    return {};
+}
+
+
+
+
 bcos::ledger::Features bcos::consensus::ConsensusConfig::features() const
 {
     return m_features;

@@ -35,8 +35,9 @@ enum MVBAPacketType : uint32_t
     LockPacket = 0x12,
     LockEchoPacket = 0x13,
     FinishPacket = 0x14,
-    PrevotePacket = 0x15,
-    VotePacket = 0x16,
+    NotifyFinishedPacket = 0x15,
+    PrevotePacket = 0x16,
+    VotePacket = 0x17,
 };
 
 DERIVE_BCOS_EXCEPTION(UnknownMVBAMsgType);

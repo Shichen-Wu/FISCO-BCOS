@@ -19,7 +19,7 @@
  * @date 2024-12-15
  */
 #include "MVBACodec.h"
-#include "bcos-mvba/mvba/protocol/proto/MVBA.pb.h"
+#include "bcos-mvba/protocol/MVBA.pb.h"
 #include <bcos-protocol/Common.h>
 
 using namespace bcos;
@@ -28,7 +28,7 @@ using namespace bcos::crypto;
 
 bytesPointer MVBACodec::encode(MVBABaseMessageInterface::Ptr _mvbaMessage, int32_t _version) const
 {
-    auto pbMessage = std::make_shared<RawMessage>();
+    auto pbMessage = std::make_shared<RawMessageMVBA>(); //TODO：暂时标记，后续统一RawMessage
 
     // set packetType
     auto packetType = _mvbaMessage->packetType();
@@ -62,7 +62,7 @@ bytesPointer MVBACodec::encode(MVBABaseMessageInterface::Ptr _mvbaMessage, int32
 
 MVBABaseMessageInterface::Ptr MVBACodec::decode(bytesConstRef _data) const
 {
-    auto pbMessage = std::make_shared<RawMessage>();
+    auto pbMessage = std::make_shared<RawMessageMVBA>(); //TODO：暂时标记，后续统一RawMessage
     bcos::protocol::decodePBObject(pbMessage, _data);
     
     // get packetType
@@ -80,6 +80,7 @@ MVBABaseMessageInterface::Ptr MVBACodec::decode(bytesConstRef _data) const
     case MVBAPacketType::ActivePacket:
     case MVBAPacketType::LockPacket:
     case MVBAPacketType::FinishPacket:
+    case MVBAPacketType::NotifyFinishedPacket:
         // 这些消息类型包含MVBA提案
         decodedMsg = m_mvbaMessageFactory->createMVBAMsg(m_cryptoSuite, payLoadRefData);
         break;
@@ -109,3 +110,21 @@ MVBABaseMessageInterface::Ptr MVBACodec::decode(bytesConstRef _data) const
     decodedMsg->setPacketType(packetType);
     return decodedMsg;
 }
+
+
+MVBAMessageInterface::Ptr MVBACodec::decodeToMVBAMessage(bytesConstRef _data) const
+{
+    auto baseMsg = decode(_data);
+        
+        // 向下转型为派生类指针
+        auto derivedMsg = std::dynamic_pointer_cast<MVBAMessageInterface>(baseMsg);
+        
+        if (!derivedMsg) {
+            BOOST_THROW_EXCEPTION(UnknownMVBAMsgType() << 
+            errinfo_comment("Failed to cast to MVBAMessageInterface"));
+        }
+        
+        return derivedMsg;
+}
+
+

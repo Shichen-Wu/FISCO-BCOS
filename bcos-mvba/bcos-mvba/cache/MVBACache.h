@@ -19,11 +19,12 @@
  * @date 2024-12-15
  */
 #pragma once
-#include "../bcos-pbft/bcos-pbft/pbft/config/PBFTConfig.h"
+#include "bcos-pbft/bcos-pbft/pbft/config/PBFTConfig.h"
 #include "../interfaces/MVBAMessageInterface.h"
 #include "../interfaces/MVBAProposalInterface.h"
 #include "../interfaces/MVBAEchoInterface.h"
 #include "../utilities/Common.h"
+#include "bcos-framework/bcos-framework/protocol/Protocol.h"
 #include <memory> 
 #include <map>
 #include <atomic>
@@ -35,17 +36,16 @@ class MVBACache : public std::enable_shared_from_this<MVBACache>
 {
 public:
     using Ptr = std::shared_ptr<MVBACache>;
+
+    using CollectionCacheType = std::map<IndexType, MVBAMessageInterface::Ptr>;
     
-    MVBACache(PBFTConfig::Ptr _config, std::atomic<EpochIndexType> _index);
+    MVBACache(PBFTConfig::Ptr _config, EpochIndexType _index);
     virtual ~MVBACache() = default;
 
     // 添加Active消息
-    virtual void addActiveCache(MVBAMessageInterface::Ptr _activeMsg, bool _isMine = false)
+    virtual void addActiveCache(MVBAMessageInterface::Ptr _activeMsg)
     {
-        if (m_finished)
-        {
-            return;
-        }
+        
         
         // 检查消息是否可以添加
         if (!canAddActiveMessage(_activeMsg))
@@ -54,7 +54,8 @@ public:
         }
         
         auto messageHash = _activeMsg->hash();
-        auto generatedFrom = _lockMsg->generatedFrom();
+        auto generatedFrom = _activeMsg->generatedFrom();
+
         
         // 记录active消息的generatedFrom和hash映射
         m_activeList[generatedFrom] = messageHash;
@@ -63,27 +64,31 @@ public:
         if (!m_activeProposal)
         {
             m_activeProposal = _activeMsg->mvbaProposal();
-            
             // 创建自己的active消息
             auto myActiveMsg = createActiveMessage();
+
+            MVBA_LOG(INFO) << LOG_DESC("Creat my own ActiveCache");
             if (myActiveMsg)
             {
                 m_myActive = myActiveMsg;
                 m_myActiveHash = myActiveMsg->hash();
                 
                 // 将自己的active消息添加到activeList中
-                m_activeList[m_config->nodeIndex()] = m_myActiveHash;
+                m_activeList[m_config->observerNodeIndex()] = m_myActiveHash;
                 
                 // 广播自己的active消息
                 MVBA_LOG(INFO) << LOG_DESC("addActiveCache: broadcast my activeMsg")
-                            << LOG_KV("Idx", m_config->nodeIndex())
+                            << LOG_KV("Idx", m_config->observerNodeIndex())
                             << LOG_KV("hash", m_myActiveHash.abridged())
+                            << LOG_KV("PacketType", myActiveMsg->packetType())
                             << LOG_KV("index", myActiveMsg->index());
                 
                 auto encodedData = m_config->mvbaCodec()->encode(myActiveMsg);
+
+                MVBA_LOG(INFO) << LOG_DESC("encodeActiveCache Success");
                 // 向观察节点广播消息
                 m_config->frontService()->asyncSendBroadcastMessage(
-                    bcos::protocol::NodeType::OBSERVER_NODE, ModuleID::PBFT, ref(*encodedData));
+                    bcos::protocol::NodeType::OBSERVER_NODE, 1000, ref(*encodedData));
             }
             else
             {
@@ -97,14 +102,16 @@ public:
 
         if (activeEchoMsg)
         {
-            if (_isMine)
+            if (generatedFrom == m_config->observerNodeIndex())
             {
                 // 如果是自己的消息，直接添加到本地activeEcho列表
+                m_config->mvbaCodec()->encode(activeEchoMsg);
+            
                 m_myActive = _activeMsg;
                 m_myActiveHash = messageHash;
                 
                 MVBA_LOG(INFO) << LOG_DESC("addActiveCache: add my activeEcho to local cache")
-                            << LOG_KV("myNodeIndex", m_config->nodeIndex())
+                            << LOG_KV("myNodeIndex", m_config->observerNodeIndex())
                             << LOG_KV("activeHash", messageHash.abridged())
                             << LOG_KV("index", m_index);
                 
@@ -115,30 +122,24 @@ public:
                 // 如果不是自己的消息，发送activeEcho给active的generatedFrom
                 MVBA_LOG(INFO) << LOG_DESC("addActiveCache: send activeEcho to sealer")
                             << LOG_KV("toSealerId", generatedFrom)
-                            << LOG_KV("myNodeIndex", m_config->nodeIndex())
+                            << LOG_KV("myNodeIndex", m_config->observerNodeIndex())
                             << LOG_KV("activeHash", messageHash.abridged())
                             << LOG_KV("index", m_index);
                 
                 auto encodedData = m_config->mvbaCodec()->encode(activeEchoMsg);
                 
                 // 获取generatedFrom对应的nodeID
-                auto nodeInfo = m_config->getConsensusNodeByIndex(generatedFrom);
+                auto nodeInfo = m_config->getObserverNodeByIndex(generatedFrom);
                 if (nodeInfo)
                 {
                     // 发送activeEcho消息给active的generatedFrom
+                    //TODO: ModuleID暂时用1000
                     m_config->frontService()->asyncSendMessageByNodeID(
-                        ModuleID::PBFT, 
-                        nodeInfo->nodeID(), 
+                        1000, 
+                        nodeInfo->nodeID, 
                         ref(*encodedData), 
                         0, // timeout
-                        [](Error::Ptr _error, bcos::crypto::NodeIDPtr, bytesConstRef, const std::string&, ResponseFunc) {
-                            if (_error)
-                            {
-                                MVBA_LOG(WARNING) << LOG_DESC("send activeEcho failed") 
-                                                << LOG_KV("errorCode", _error->errorCode())
-                                                << LOG_KV("errorMessage", _error->errorMessage());
-                            }
-                        }
+                        nullptr
                     );
                 }
                 else
@@ -156,14 +157,14 @@ public:
         }
         
         MVBA_LOG(INFO) << LOG_DESC("addActiveCache") << LOG_KV("generatedFrom", generatedFrom)
-                    << LOG_KV("hash", messageHash.abridged()) << LOG_KV("isMine", _isMine)
+                    << LOG_KV("hash", messageHash.abridged()) 
                     << LOG_KV("index", m_index) << m_config->printCurrentState();
     }
 
     // 添加ActiveEcho消息
     virtual void addActiveEchoCache(MVBAMessageInterface::Ptr _activeEchoMsg)
     {
-        if (m_finished || m_myActiveHash.empty())
+        if (!m_myActive)
         {
             return;
         }
@@ -179,18 +180,19 @@ public:
         {
             return;
         }
+
         
         auto generatedFrom = _activeEchoMsg->generatedFrom();
         m_activeEchoList[generatedFrom] = _activeEchoMsg;
-        
+
         // 更新activeEchoWeight计数器
-        auto nodeInfo = m_config->getConsensusNodeByIndex(generatedFrom);
+        auto nodeInfo = m_config->getObserverNodeByIndex(generatedFrom);
         if (!nodeInfo)
         {
             return;
         }
 
-        m_activeEchoWeight += nodeInfo->voteWeight;
+        m_activeEchoWeight++; // += nodeInfo->voteWeight;
         
         MVBA_LOG(INFO) << LOG_DESC("addActiveEchoCache") << LOG_KV("from", generatedFrom)
                        << LOG_KV("activeEchoWeight", m_activeEchoWeight) << LOG_KV("index", m_index)
@@ -198,12 +200,8 @@ public:
     }
 
     // 添加Lock消息
-    virtual void addLockCache(MVBAMessageInterface::Ptr _lockMsg, bool _isMine = false)
+    virtual void addLockCache(MVBAMessageInterface::Ptr _lockMsg)
     {
-        if (m_finished)
-        {
-            return;
-        }
         
         // 检查消息是否可以添加
         if (!canAddLockMessage(_lockMsg))
@@ -217,54 +215,48 @@ public:
         // 记录lock消息
         m_lockList[generatedFrom] = _lockMsg;
         
-
          // 创建lockEcho消息
         auto lockEchoMsg = createLockEchoMessage(_lockMsg, messageHash);
         
         if (lockEchoMsg)
         {
-            if (_isMine)
+            if (generatedFrom == m_config->observerNodeIndex())
             {
-                // 如果是自己的消息，直接添加到本地lockEcho列表
+                
                 m_myLock = _lockMsg;
                 m_myLockHash = messageHash;
+
+                // 如果是自己的lock消息，直接添加到本地lockEcho列表
+                m_config->mvbaCodec()->encode(lockEchoMsg);
+                addLockEchoCache(lockEchoMsg);
                 
                 MVBA_LOG(INFO) << LOG_DESC("addLockCache: add my lockEcho to local cache")
-                            << LOG_KV("myNodeIndex", m_config->nodeIndex())
+                            << LOG_KV("myNodeIndex", m_config->observerNodeIndex())
                             << LOG_KV("lockHash", messageHash.abridged())
                             << LOG_KV("index", m_index);
-                
-                addLockEchoCache(lockEchoMsg);
             }
             else
             {
                 // 如果不是自己的消息，发送lockEcho给lock的generatedFrom
                 MVBA_LOG(INFO) << LOG_DESC("addLockCache: send lockEcho to sealer")
                             << LOG_KV("toSealerId", generatedFrom)
-                            << LOG_KV("myNodeIndex", m_config->nodeIndex())
+                            << LOG_KV("myNodeIndex", m_config->observerNodeIndex())
                             << LOG_KV("lockHash", messageHash.abridged())
                             << LOG_KV("index", m_index);
                 
                 auto encodedData = m_config->mvbaCodec()->encode(lockEchoMsg);
                 
                 // 获取generatedFrom对应的nodeID
-                auto nodeInfo = m_config->getConsensusNodeByIndex(generatedFrom);
+                auto nodeInfo = m_config->getObserverNodeByIndex(generatedFrom);
                 if (nodeInfo)
                 {
                     // 发送lockEcho消息给lock的generatedFrom
                     m_config->frontService()->asyncSendMessageByNodeID(
-                        ModuleID::PBFT, 
-                        nodeInfo->nodeID(), 
+                        1000, 
+                        nodeInfo->nodeID, 
                         ref(*encodedData), 
                         0, // timeout
-                        [](Error::Ptr _error, bcos::crypto::NodeIDPtr, bytesConstRef, const std::string&, ResponseFunc) {
-                            if (_error)
-                            {
-                                MVBA_LOG(WARNING) << LOG_DESC("send lockEcho failed") 
-                                                << LOG_KV("errorCode", _error->errorCode())
-                                                << LOG_KV("errorMessage", _error->errorMessage());
-                            }
-                        }
+                        nullptr
                     );
                 }
                 else
@@ -282,7 +274,7 @@ public:
         }
         
         MVBA_LOG(INFO) << LOG_DESC("addLockCache") << LOG_KV("generatedFrom", generatedFrom)
-                    << LOG_KV("hash", messageHash.abridged()) << LOG_KV("isMine", _isMine)
+                    << LOG_KV("hash", messageHash.abridged()) 
                     << LOG_KV("index", m_index) << m_config->printCurrentState();
         
     }
@@ -290,7 +282,7 @@ public:
     // 添加LockEcho消息
     virtual void addLockEchoCache(MVBAMessageInterface::Ptr _lockEchoMsg)
     {
-        if (m_finished || m_myLockHash.empty())
+        if (!m_myLock)
         {
             return;
         }
@@ -311,13 +303,13 @@ public:
         m_lockEchoList[generatedFrom] = _lockEchoMsg;
         
         // 更新lockEchoWeight计数器
-        auto nodeInfo = m_config->getConsensusNodeByIndex(generatedFrom);
+        auto nodeInfo = m_config->getObserverNodeByIndex(generatedFrom);
         if (!nodeInfo)
         {
             return;
         }
         
-        m_lockEchoWeight += nodeInfo->voteWeight;
+        m_lockEchoWeight++; // += nodeInfo->voteWeight;
         
         MVBA_LOG(INFO) << LOG_DESC("addLockEchoCache") << LOG_KV("from", generatedFrom)
                        << LOG_KV("lockEchoWeight", m_lockEchoWeight) << LOG_KV("index", m_index)
@@ -327,10 +319,6 @@ public:
     // 添加Finish消息
     virtual void addFinishCache(MVBAMessageInterface::Ptr _finishMsg)
     {
-        if (m_finished)
-        {
-            return;
-        }
         
         // 检查消息是否可以添加
         if (!canAddFinishMessage(_finishMsg))
@@ -341,13 +329,13 @@ public:
         auto generatedFrom = _finishMsg->generatedFrom();
         m_finishList[generatedFrom] = _finishMsg;
 
-        auto nodeInfo = m_config->getConsensusNodeByIndex(generatedFrom);
+        auto nodeInfo = m_config->getObserverNodeByIndex(generatedFrom);
         if (!nodeInfo)
         {
             return;
         }
         
-        m_finishWeight += nodeInfo->voteWeight;
+        m_finishWeight++; // += nodeInfo->voteWeight;
         
         MVBA_LOG(INFO) << LOG_DESC("addFinishCache") << LOG_KV("from", generatedFrom)
                        << LOG_KV("index", m_index) << m_config->printCurrentState();
@@ -414,6 +402,10 @@ public:
     {
         m_finishNotifier = std::move(_notifier);
     }
+
+    bcos::crypto::HashType getProposalHash() const;
+    
+    MVBAMessageInterface::Ptr getLeaderFinishMessage(IndexType _leaderId) const;
 
 protected:
     // 检查Active消息是否可以添加
@@ -528,19 +520,19 @@ protected:
     // 检查是否收集到足够的ActiveEcho
     bool collectEnoughActiveEcho()
     {
-        return m_activeEchoWeight >= m_config->minRequiredQuorum();
+        return m_activeEchoWeight >= m_minRequiredQuorum;
     }
 
     // 检查是否收集到足够的LockEcho
     bool collectEnoughLockEcho()
     {
-        return m_lockEchoWeight >= m_config->minRequiredQuorum();
+        return m_lockEchoWeight >= m_minRequiredQuorum;
     }
 
     // 检查是否收集到足够的finish消息
     bool collectEnoughFinish()
     {
-        return m_finishWeight >= m_config->minRequiredQuorum();
+        return m_finishWeight >= m_minRequiredQuorum;
     }
 
     // 根据收到的active创建自己的active消息，具体为将收到的active的值都赋予新的active消息，然后将sealerId替换为自己的，再签名与打包
@@ -561,7 +553,9 @@ protected:
 protected:
     PBFTConfig::Ptr m_config;
     std::atomic<EpochIndexType> m_index;
-    using CollectionCacheType = std::map<IndexType, MVBAMessageInterface::Ptr>;
+
+    //当前MVBA实例的quorum
+    std::atomic<uint64_t> m_minRequiredQuorum;
     
     // 状态标志
     std::atomic_bool m_actived = {false};

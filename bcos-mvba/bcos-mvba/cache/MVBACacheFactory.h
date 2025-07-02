@@ -30,7 +30,7 @@ public:
     virtual ~MVBACacheFactory() = default;
 
     virtual MVBACache::Ptr createMVBACache(PBFTConfig::Ptr _config,
-        bcos::protocol::EpochIndexType _index)
+        EpochIndexType _index)
     {
         auto cache = std::make_shared<MVBACache>(_config, _index);
         //cache->registerCommittedIndexNotify(_committedIndexNotifier);

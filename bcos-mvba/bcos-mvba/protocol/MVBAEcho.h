@@ -13,14 +13,14 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  *
- * @brief implementation for MVBARawEcho
- * @file MVBARawEcho.h
+ * @brief implementation for MVBAEcho
+ * @file MVBAEcho.h
  * @author: yujiechen
  * @date 2024-12-15
  */
 #pragma once
 #include "../interfaces/MVBAEchoInterface.h"
-#include "MVBA.pb.h"
+#include "bcos-mvba/protocol/MVBA.pb.h"
 #include <bcos-protocol/Common.h>
 
 namespace bcos
@@ -30,23 +30,23 @@ namespace consensus
 class MVBAEcho : public MVBAEchoInterface
 {
 public:
-    using Ptr = std::shared_ptr<MVBARawEcho>;
-    MVBARawEcho()
+    using Ptr = std::shared_ptr<MVBAEcho>;
+    MVBAEcho()
     {
         m_MVBARawEcho = std::make_shared<::bcos::consensus::MVBARawEcho>();
     }
-    explicit MVBARawEcho(bytesConstRef _data)
+    explicit MVBAEcho(bytesConstRef _data)
     {
         m_MVBARawEcho = std::make_shared<::bcos::consensus::MVBARawEcho>();
         decode(_data);
     }
-    explicit MVBARawEcho(std::shared_ptr<::bcos::consensus::MVBARawEcho> _MVBARawEcho)
+    explicit MVBAEcho(std::shared_ptr<::bcos::consensus::MVBARawEcho> _MVBARawEcho)
       : m_MVBARawEcho(_MVBARawEcho)
     {
         deserializeToObject();
     }
 
-    ~MVBARawEcho() override = default;
+    ~MVBAEcho() override = default;
 
     std::shared_ptr<::bcos::consensus::MVBARawEcho> MVBARawEcho() { return m_MVBARawEcho; }
 
@@ -67,7 +67,7 @@ public:
         m_MVBARawEcho->set_payloadhash(m_payloadHash.data(), bcos::crypto::HashType::SIZE);
     }
 
-    bool operator==(MVBARawEcho const& _rep) const
+    bool operator==(MVBAEcho const& _rep) const
     {
         return (index() == _rep.index()) && 
                (round() == _rep.round()) &&
@@ -75,7 +75,7 @@ public:
                (payloadHash() == _rep.payloadHash());
     }
 
-    bool operator!=(MVBARawEcho const& _rep) const { return !(operator==(_rep)); }
+    bool operator!=(MVBAEcho const& _rep) const { return !(operator==(_rep)); }
 
     bytesPointer encode() const override
     {

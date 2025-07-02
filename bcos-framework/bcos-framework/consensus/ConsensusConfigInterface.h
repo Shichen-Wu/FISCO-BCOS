@@ -38,6 +38,10 @@ public:
     // the nodeIndex of this node
     virtual IndexType nodeIndex() const = 0;
 
+    // the observer node
+    virtual IndexType observerNodeIndex() const = 0;
+    virtual ConsensusNodeList observerNodeList() const = 0;
+
     // the sealer list
     virtual ConsensusNodeList consensusNodeList() const = 0;
     virtual bcos::crypto::NodeIDs consensusNodeIDList(bool _excludeSelf = true) const = 0;

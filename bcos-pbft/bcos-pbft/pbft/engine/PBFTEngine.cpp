@@ -22,6 +22,7 @@
 #include "../cache/PBFTCacheFactory.h"
 #include "../cache/PBFTCacheProcessor.h"
 #include "bcos-framework/ledger/Ledger.h"
+#include "bcos-pbft/pbft/protocol/proto/PBFT.pb.h"
 #include "bcos-ledger/LedgerMethods.h"
 #include "bcos-task/Wait.h"
 #include "bcos-utilities/BoostLog.h"
@@ -140,6 +141,41 @@ void PBFTEngine::start()
     {
         triggerTimeout(false);
     }
+
+    //启动MVBA实例
+    m_mvbaProcessor->start();
+    std::thread([this]() {
+    while (true){
+    try {
+        // 等待10秒
+        std::this_thread::sleep_for(std::chrono::seconds(180));
+        
+        // 检查引擎是否还在运行状态
+        if (m_stopped.load()) {
+            PBFT_LOG(INFO) << LOG_DESC("PBFTEngine has stopped，cancel MVBA instance");
+            return;
+        }
+        
+        PBFT_LOG(INFO) << LOG_DESC("after PBFTEngine 180s start MVBA");
+        
+        // 调用MVBA入口
+        if (m_mvbaProcessor) {
+            m_mvbaProcessor->mockAndStartMVBAInstance();
+            PBFT_LOG(INFO) << LOG_DESC("MVBA start success");
+        } else {
+            PBFT_LOG(WARNING) << LOG_DESC("MVBA processor does not exit");
+        }
+        
+    } catch (const std::exception& e) {
+        PBFT_LOG(ERROR) << LOG_DESC("MVBA starts error") 
+                        << LOG_KV("error", e.what());
+    } catch (...) {
+        PBFT_LOG(ERROR) << LOG_DESC("error: unknown MVBA error");
+    }
+    }
+    }).detach(); 
+
+    PBFT_LOG(INFO) << LOG_DESC("PBFTEnginehas started, MVBA will start after 180s");
 }
 
 void PBFTEngine::tryToResendCheckPoint()
@@ -510,7 +546,7 @@ void PBFTEngine::onReceivePBFTMessage(Error::Ptr _error, NodeIDPtr _fromNode, by
         if (isMVBAMessage(_data))
         {
             // 如果是MVBA消息，交给MVBA处理器处理
-            onReceiveMVBAMessage(_error, _fromNode, _data, _sendResponseCallback);
+            onReceiveMVBAMessage(_error, _fromNode, _data);
             return;
         }
 
@@ -573,10 +609,9 @@ bool PBFTEngine::isMVBAMessage(bytesConstRef _data) const
     {
         auto pbMessage = std::make_shared<RawMessage>();
         bcos::protocol::decodePBObject(pbMessage, _data);
-        
+  
         MVBAPacketType packetType = (MVBAPacketType)(pbMessage->type());
         
-        // 根据你的MVBACodec.cpp中的switch case来判断
         switch (packetType)
         {
         case MVBAPacketType::ActivePacket:
@@ -586,6 +621,7 @@ bool PBFTEngine::isMVBAMessage(bytesConstRef _data) const
         case MVBAPacketType::LockEchoPacket:
         case MVBAPacketType::PrevotePacket:
         case MVBAPacketType::VotePacket:
+        case MVBAPacketType::NotifyFinishedPacket:
             return true;
         default:
             return false;
@@ -599,8 +635,7 @@ bool PBFTEngine::isMVBAMessage(bytesConstRef _data) const
     }
 }
 
-void PBFTEngine::onReceiveMVBAMessage(Error::Ptr _error, NodeIDPtr _fromNode, bytesConstRef _data,
-                                     SendResponseCallback _sendResponseCallback)
+void PBFTEngine::onReceiveMVBAMessage(Error::Ptr _error, NodeIDPtr _fromNode, bytesConstRef _data)
 {
     try
     {
@@ -612,13 +647,13 @@ void PBFTEngine::onReceiveMVBAMessage(Error::Ptr _error, NodeIDPtr _fromNode, by
         // Todo:检查节点
 
         // 使用MVBACodec解码消息
-        auto mvbaMsg = m_config->mvbaCodec()->decode(_data);
-        mvbaMsg->setFrom(_fromNode);
+        auto mvbaMsg = m_config->mvbaCodec()->decodeToMVBAMessage(_data);
+        //mvbaMsg->setFrom(_fromNode);
         
         
-        PBFT_LOG(TRACE) << LOG_DESC("onReceiveMVBAMessage: received MVBA message")
+        PBFT_LOG(INFO) << LOG_DESC("onReceiveMVBAMessage:")
                         << LOG_KV("packetType", (int32_t)mvbaMsg->packetType())
-                        << LOG_KV("fromNode", _fromNode->hex());
+                        << LOG_KV("fromNode", m_config->getObserverNodeIndexByNodeID(_fromNode));
 
         m_mvbaProcessor->handleMVBAMessage(mvbaMsg);
     }

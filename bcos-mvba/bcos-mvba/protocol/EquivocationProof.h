@@ -20,7 +20,7 @@
  */
 #pragma once
 #include "../interfaces/EquivocationProofInterface.h"
-#include "../protocol/MVBA.pb.h"
+#include "bcos-mvba/protocol/MVBA.pb.h"
 #include <bcos-protocol/Common.h>
 
 namespace bcos::consensus
@@ -29,9 +29,9 @@ class EquivocationProof : virtual public EquivocationProofInterface
 {
 public:
     using Ptr = std::shared_ptr<EquivocationProof>;
-    EquivocationProof() : m_rawEquivocationProof(std::make_shared<::bcos::consensus::EquivocationProof>()) {}
+    EquivocationProof() : m_rawEquivocationProof(std::make_shared<RawEquivocationProof>()) {}
     explicit EquivocationProof(bytesConstRef _data) : EquivocationProof() { decode(_data); }
-    explicit EquivocationProof(std::shared_ptr<::bcos::consensus::EquivocationProof> _rawEquivocationProof) 
+    explicit EquivocationProof(std::shared_ptr<RawEquivocationProof> _rawEquivocationProof) 
         : m_rawEquivocationProof(_rawEquivocationProof)
     {
         deserializeObject();
@@ -144,7 +144,7 @@ public:
     }
     bool operator!=(EquivocationProof const& _proof) const { return !(operator==(_proof)); }
 
-    std::shared_ptr<::bcos::consensus::EquivocationProof> rawEquivocationProof() { return m_rawEquivocationProof; }
+    std::shared_ptr<RawEquivocationProof> rawEquivocationProof() { return m_rawEquivocationProof; }
 
     bytesPointer encode() const override { return bcos::protocol::encodePBObject(m_rawEquivocationProof); }
     void decode(bytesConstRef _data) override
@@ -154,7 +154,7 @@ public:
     }
 
 protected:
-    void setRawEquivocationProof(std::shared_ptr<::bcos::consensus::EquivocationProof> _rawEquivocationProof)
+    void setRawEquivocationProof(std::shared_ptr<RawEquivocationProof> _rawEquivocationProof)
     {
         m_rawEquivocationProof = _rawEquivocationProof;
         deserializeObject();
@@ -187,7 +187,7 @@ protected:
     }
 
 protected:
-    std::shared_ptr<::bcos::consensus::EquivocationProof> m_rawEquivocationProof;
+    std::shared_ptr<RawEquivocationProof> m_rawEquivocationProof;
     std::vector<int64_t> m_maliciousNodeIndexes;
     std::vector<bytes> m_mainChainSignatures;
     std::vector<bytes> m_conflictSignatures;

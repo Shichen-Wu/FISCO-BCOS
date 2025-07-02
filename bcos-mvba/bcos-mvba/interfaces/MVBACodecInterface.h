@@ -20,6 +20,7 @@
  */
 #pragma once
 #include "MVBABaseMessageInterface.h"
+#include "MVBAMessageInterface.h"
 #include <bcos-crypto/interfaces/crypto/KeyInterface.h>
 #include <bcos-utilities/Common.h>
 
@@ -40,6 +41,8 @@ public:
     // Taking into account the situation of future blocks, verify the signature if and only when
     // processing the message packet
     virtual MVBABaseMessageInterface::Ptr decode(bytesConstRef _data) const = 0;
+
+    virtual MVBAMessageInterface::Ptr decodeToMVBAMessage(bytesConstRef _data) const = 0;
 };
 }  // namespace consensus
 }  // namespace bcos

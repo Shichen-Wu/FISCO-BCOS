@@ -19,9 +19,9 @@
  * @date 2021-04-13
  */
 #pragma once
-#include "../../interfaces/MVBAMessageInterface.h"
+#include "../interfaces/MVBAMessageInterface.h"
 #include "MVBABaseMessage.h"
-#include "bcos-mvba/mvba/protocol/proto/MVBA.pb.h"
+#include "bcos-mvba/protocol/MVBA.pb.h"
 
 namespace bcos::consensus
 {
@@ -126,7 +126,7 @@ public:
                      << LOG_KV("mvbaProposal",
                             m_mvbaProposal ? printMVBAProposal(m_mvbaProposal) : "null")
                      << LOG_KV("mvbaEcho",
-                            m_mvbaEcho ? printMVBARawEcho(m_mvbaEcho) : "null");
+                            m_mvbaEcho ? printMVBAEcho(m_mvbaEcho) : "null");
 
         return stringstream.str();
     }

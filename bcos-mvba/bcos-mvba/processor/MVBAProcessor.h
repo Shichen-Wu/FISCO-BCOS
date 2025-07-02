@@ -28,6 +28,7 @@
 #include "../bcos-pbft/bcos-pbft/pbft/config/PBFTConfig.h"
 #include "../utilities/Common.h"
 #include <bcos-framework/protocol/Protocol.h>
+#include <bcos-crypto/interfaces/crypto/CommonType.h>
 #include <bcos-utilities/Timer.h>
 #include <memory>
 #include <atomic>
@@ -44,8 +45,9 @@ class MVBAProcessor : public std::enable_shared_from_this<MVBAProcessor>
 public:
     using Ptr = std::shared_ptr<MVBAProcessor>;
     using MessageHandler = std::function<void(MVBAMessageInterface::Ptr)>;
-    using LockNotifyHandler = std::function<void(bcos::protocol::EpochIndexType)>;
-    using FinishNotifyHandler = std::function<void(bcos::protocol::EpochIndexType)>;
+    using LockNotifyHandler = std::function<void(EpochIndexType)>;
+    using FinishNotifyHandler = std::function<void(EpochIndexType)>;
+    using RoundType = uint64_t;
     
     MVBAProcessor(PBFTConfig::Ptr _config);
     virtual ~MVBAProcessor();
@@ -61,18 +63,20 @@ public:
     virtual MVBAMessageFactory::Ptr messageFactory() const { return m_messageFactory; }
     virtual MVBACacheProcessor::Ptr cacheProcessor() const { return m_cacheProcessor; }
 
+    //MVBA消息判断
+    //virtual bool isMVBAMessage(bytesConstRef _data);
+
     // 主要消息处理入口
     virtual void handleMVBAMessage(MVBAMessageInterface::Ptr _msg);
 
     // MVBA协议状态管理
-    virtual void startMVBAInstance(bcos::protocol::EpochIndexType _index,
-                                   bcos::protocol::RoundType _round,
-                                   bytesConstRef _input);
+    virtual void startMVBAInstance(EpochIndexType _index, EquivocationProof::Ptr _input, bcos::crypto::HashType _inputHash);
+
+    virtual void mockAndStartMVBAInstance();
     
     // 获取当前MVBA状态
     virtual bool isRunning() const { return m_running; }
-    virtual bcos::protocol::EpochIndexType currentIndex() const { return m_currentIndex; }
-    virtual bcos::protocol::RoundType currentRound() const { return m_currentRound; }
+    virtual EpochIndexType currentIndex() const { return m_currentIndex; }
 
     // 注册回调函数
     virtual void registerLockNotifyHandler(LockNotifyHandler _handler) { m_lockNotifyHandler = _handler; }
@@ -95,19 +99,19 @@ protected:
     virtual void enqueueMessage(MVBAMessageInterface::Ptr _msg);
 
     // 回调处理
-    virtual void onCacheLocked(bcos::protocol::EpochIndexType _index);
-    virtual void onCacheFinished(bcos::protocol::EpochIndexType _index);
+    virtual void onCacheLocked(EpochIndexType _index);
+    virtual void onCacheFinished(EpochIndexType _index);
 
     // 超时处理
-    virtual void startInstanceTimer(bcos::protocol::EpochIndexType _index);
-    virtual void stopInstanceTimer(bcos::protocol::EpochIndexType _index);
-    virtual void onInstanceTimeout(bcos::protocol::EpochIndexType _index);
+    virtual void startInstanceTimer(EpochIndexType _index);
+    virtual void stopInstanceTimer(EpochIndexType _index);
+    virtual void onInstanceTimeout(EpochIndexType _index);
 
     // 清理和垃圾回收
     virtual void cleanupExpiredInstances();
     
     // MVBA协议相关
-    virtual void tryBroadcastActive(bcos::protocol::EpochIndexType _index, bcos::protocol::RoundType _round);
+    virtual void tryBroadcastActive(EpochIndexType _index, RoundType _round);
 
 protected:
     // 基础配置和依赖
@@ -121,10 +125,7 @@ protected:
     std::atomic<bool> m_started{false};
     
     // 当前MVBA实例状态
-    std::atomic<bcos::protocol::EpochIndexType> m_currentIndex{0};
-    std::atomic<bcos::protocol::RoundType> m_currentRound{0};
-    bytes m_currentInput;
-    mutable std::shared_mutex m_currentInputMutex;
+    std::atomic<EpochIndexType> m_currentIndex{0};
 
     // 消息队列和处理线程
     std::queue<MVBAMessageInterface::Ptr> m_messageQueue;
@@ -137,11 +138,11 @@ protected:
     FinishNotifyHandler m_finishNotifyHandler;
 
     // 定时器管理
-    std::map<bcos::protocol::EpochIndexType, bcos::Timer::Ptr> m_instanceTimers;
+    std::map<EpochIndexType, std::shared_ptr<bcos::Timer>> m_instanceTimers;
     mutable std::mutex m_timersMutex;
     
     // 配置参数
-    uint64_t m_instanceTimeout{30000};  // 30秒实例超时
+    uint64_t m_instanceTimeout{300000};  // 30秒实例超时
     uint64_t m_messageTimeout{10000};   // 10秒消息超时
     size_t m_maxPendingMessages{10000}; // 最大pending消息数
     size_t m_maxCacheInstances{100};    // 最大缓存实例数

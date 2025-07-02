@@ -95,7 +95,8 @@ public:
         mvbaMessage->setIndex(_proposal->index());
         mvbaMessage->setRound(_proposal->round());
         mvbaMessage->setSealerId(_proposal->sealerId());
-        
+
+     
         // 创建签名的proposal
         auto signedProposal = createMVBAProposal();
         signedProposal->setIndex(_proposal->index());
@@ -107,7 +108,7 @@ public:
         {
             signedProposal->setMvbaInput(_proposal->mvbaInput());
         }
-        
+
 
         if (_needProof)
         {
@@ -120,6 +121,7 @@ public:
         }
         
         mvbaMessage->setMvbaProposal(signedProposal);
+
         return mvbaMessage;
     }
 

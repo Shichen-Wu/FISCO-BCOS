@@ -26,6 +26,9 @@
 #include "bcos-pbft/pbft/engine/Validator.h"
 #include "bcos-pbft/pbft/interfaces/PBFTCodecInterface.h"
 #include "bcos-mvba/bcos-mvba/interfaces/MVBACodecInterface.h"
+#include "bcos-mvba/bcos-mvba/protocol/MVBACodec.h"
+#include "bcos-mvba/bcos-mvba/interfaces/MVBAMessageFactory.h"
+#include "bcos-mvba/bcos-mvba/protocol/MVBAMessageFactoryImpl.h"
 #include "bcos-pbft/pbft/interfaces/PBFTMessageFactory.h"
 #include "bcos-pbft/pbft/interfaces/PBFTStorage.h"
 #include "bcos-pbft/pbft/utilities/Common.h"
@@ -43,7 +46,6 @@ public:
     PBFTConfig(bcos::crypto::CryptoSuite::Ptr _cryptoSuite,
         bcos::crypto::KeyPairInterface::Ptr _keyPair,
         std::shared_ptr<PBFTMessageFactory> _pbftMessageFactory,
-        std::shared_ptr<MVBACodecInterface> _mvbaCodec,
         std::shared_ptr<PBFTCodecInterface> _codec, std::shared_ptr<ValidatorInterface> _validator,
         std::shared_ptr<bcos::front::FrontServiceInterface> _frontService,
         StateMachineInterface::Ptr _stateMachine, PBFTStorage::Ptr _storage,
@@ -52,17 +54,21 @@ public:
         m_cryptoSuite(std::move(_cryptoSuite)),
         m_pbftMessageFactory(std::move(_pbftMessageFactory)),
         m_codec(std::move(_codec)),
-        m_mvbaCodec(std::move(_mvbaCodec)),
         m_validator(std::move(_validator)),
         m_frontService(std::move(_frontService)),
         m_stateMachine(std::move(_stateMachine)),
         m_storage(std::move(_storage)),
         m_connectedNodeList(std::make_shared<bcos::crypto::NodeIDSet>()),
         m_blockFactory(std::move(_blockFactory))
+
     {
         m_pbftTimer = std::make_shared<PBFTTimer>(consensusTimeout(), "pbftTimer");
         // Note: the pullTxsTimeout must be smaller than consensusTimeout to fetch txs before
         // viewchange when there has no-synced txs pullTxsTimeout is larger than 3000ms
+        //创建MVBA相关类
+        m_mvbaMessageFactory = std::make_shared<MVBAMessageFactoryImpl>();
+        m_mvbaCodec = std::make_shared<MVBACodec>(keyPair(), m_cryptoSuite, m_mvbaMessageFactory);
+
     }
 
     ~PBFTConfig() override = default;
@@ -127,9 +133,11 @@ public:
     std::shared_ptr<bcos::front::FrontServiceInterface> frontService() { return m_frontService; }
     std::shared_ptr<PBFTCodecInterface> codec() { return m_codec; }
     std::shared_ptr<MVBACodecInterface> mvbaCodec() { return m_mvbaCodec; }
+    std::shared_ptr<MVBAMessageFactory> mvbaMessageFactory() { return m_mvbaMessageFactory; }
 
     PBFTProposalInterface::Ptr populateCommittedProposal();
     unsigned pbftMsgDefaultVersion() const { return c_pbftMsgDefaultVersion; }
+    unsigned mvbaMsgDefaultVersion() const { return c_mvbaMsgDefaultVersion; }
     unsigned networkTimeoutInterval() const { return c_networkTimeoutInterval; }
     std::shared_ptr<ValidatorInterface> validator() { return m_validator; }
     PBFTStorage::Ptr storage() { return m_storage; }
@@ -423,6 +431,8 @@ protected:
     void tryToSyncTxs();
 
     bcos::crypto::CryptoSuite::Ptr m_cryptoSuite;
+
+    std::shared_ptr<MVBAMessageFactory> m_mvbaMessageFactory;
     // Factory for creating PBFT message package
     std::shared_ptr<PBFTMessageFactory> m_pbftMessageFactory;
     // Codec for serialization/deserialization of PBFT message packets
@@ -465,6 +475,7 @@ protected:
 
     std::atomic<uint64_t> m_leaderSwitchPeriod = {1};
     const unsigned c_pbftMsgDefaultVersion = 0;
+    const unsigned c_mvbaMsgDefaultVersion = 0;
     const unsigned c_networkTimeoutInterval = 1000;
     // state variable that identifies whether it has timed out
     std::atomic_bool m_timeoutState = {false};

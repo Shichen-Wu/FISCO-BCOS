@@ -22,6 +22,7 @@
 #include "PBFTLogSync.h"
 #include "bcos-mvba/bcos-mvba/processor/MVBAProcessor.h"
 #include "bcos-mvba/bcos-mvba/utilities/Common.h"
+#include "bcos-mvba/bcos-mvba/interfaces/MVBAMessageInterface.h"
 #include "bcos-framework/ledger/LedgerInterface.h"
 #include "bcos-pbft/core/ConsensusEngine.h"
 #include <bcos-utilities/Error.h>
@@ -67,6 +68,7 @@ public:
         std::function<void(Error::Ptr)> _onProposalSubmitted);
 
     std::shared_ptr<PBFTConfig> pbftConfig() { return m_config; }
+    MVBAProcessor::Ptr mvbaProcessor() {return m_mvbaProcessor; }
 
     // Receive PBFT message package from frontService
     virtual void onReceivePBFTMessage(bcos::Error::Ptr _error, std::string const& _id,
@@ -206,8 +208,8 @@ protected:
     // 判断消息是否为MVBA消息
     bool isMVBAMessage(bytesConstRef _data) const;
     // 处理MVBA消息
-    void onReceiveMVBAMessage(Error::Ptr _error, NodeIDPtr _fromNode, bytesConstRef _data, 
-                             SendResponseCallback _sendResponseCallback);
+    void onReceiveMVBAMessage(Error::Ptr _error, bcos::crypto::NodeIDPtr _fromNode, bytesConstRef _data);
+
 
 private:
     // utility functions

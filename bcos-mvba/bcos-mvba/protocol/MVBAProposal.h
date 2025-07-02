@@ -20,7 +20,7 @@
  */
 #pragma once
 #include "../interfaces/MVBAProposalInterface.h"
-#include "../protocol/MVBA.pb.h"
+#include "bcos-mvba/protocol/MVBA.pb.h"
 #include "EquivocationProof.h"
 #include <bcos-protocol/Common.h>
 
@@ -61,18 +61,32 @@ public:
     void setSealerId(int64_t _sealerId) override { m_mvbaRawProposal->set_sealerid(_sealerId); }
 
     EquivocationProofInterface::Ptr mvbaInput() const override { return m_mvbaInput; }
+    //void setMvbaInput(EquivocationProofInterface::Ptr _mvbaInput) override 
+    //{
+    //    m_mvbaInput = _mvbaInput;
+    //    auto equivocationProof = std::dynamic_pointer_cast<EquivocationProof>(_mvbaInput);
+        //set mvbainput, i.e. equivocation proof
+    //    if (m_mvbaRawProposal->has_mvbainput())
+    //    {
+    //        m_mvbaRawProposal->unsafe_arena_release_mvbainput();
+    //    }
+    //    m_mvbaRawProposal->unsafe_arena_set_allocated_mvbainput(
+    //        equivocationProof->rawEquivocationProof().get());
+    //}
+
     void setMvbaInput(EquivocationProofInterface::Ptr _mvbaInput) override
     {
         m_mvbaInput = _mvbaInput;
-        if (m_mvbaInput)
-        {
-            auto equivocationProof = std::dynamic_pointer_cast<EquivocationProof>(m_mvbaInput);
-            if (equivocationProof)
-            {
-                m_mvbaRawProposal->set_allocated_mvbainput(equivocationProof->rawEquivocationProof().get());
-            }
+        auto equivocationProof = std::dynamic_pointer_cast<EquivocationProof>(_mvbaInput);
+    
+        if (equivocationProof && equivocationProof->rawEquivocationProof()) {
+            // 使用 mutable_mvbainput() 获取可修改的指针，然后拷贝内容
+            m_mvbaRawProposal->mutable_mvbainput()->CopyFrom(
+                *equivocationProof->rawEquivocationProof());
         }
     }
+
+
 
     bcos::crypto::HashType const& payloadHash() const override { return m_payloadHash; }
     void setPayloadHash(bcos::crypto::HashType const& _payloadHash) override
@@ -151,9 +165,14 @@ protected:
         // deserialize mvbaInput
         if (m_mvbaRawProposal->has_mvbainput())
         {
-            auto rawEquivocationProof = std::make_shared<::bcos::consensus::EquivocationProof>(
-                m_mvbaRawProposal->mutable_mvbainput());
+            auto rawEquivocationProof = std::make_shared<RawEquivocationProof>();
+    
+            rawEquivocationProof->CopyFrom(m_mvbaRawProposal->mvbainput());
             m_mvbaInput = std::make_shared<EquivocationProof>(rawEquivocationProof);
+
+            //auto rawEquivocationProof = std::make_shared<RawEquivocationProof>(
+            //    m_mvbaRawProposal->mutable_mvbainput());
+            //m_mvbaInput = std::make_shared<EquivocationProof>(rawEquivocationProof);
         }
 
         // deserialize payloadHash

@@ -19,23 +19,28 @@
  * @date 2024-12-15
  */
 #include "MVBACache.h"
+#include "../interfaces/MVBAMessageFactory.h"
 
 using namespace bcos;
 using namespace bcos::consensus;
 using namespace bcos::protocol;
 using namespace bcos::crypto;
 
-MVBACache::MVBACache(PBFTConfig::Ptr _config, std::atomic<EpochIndexType> _index)
+MVBACache::MVBACache(PBFTConfig::Ptr _config, EpochIndexType _index)
   : m_config(std::move(_config)), m_index(_index)
-{}
+{
+    m_minRequiredQuorum = m_config->observerNodesNum() - ((m_config->observerNodesNum() - 1)/3);
+}
 
 bool MVBACache::checkAndActived()
 {
     // 如果已经actived或者finished，返回false
-    if (m_actived || m_finished)
+    if (m_actived)
     {
         return false;
     }
+    MVBA_LOG(INFO) << LOG_DESC("checkAndActived: m_minRequiredQuorum")
+                   << LOG_KV("m_minRequiredQuorum", m_minRequiredQuorum);
 
     // 检查是否收集到足够的ActiveEcho
     if (!collectEnoughActiveEcho())
@@ -45,11 +50,13 @@ bool MVBACache::checkAndActived()
     
     MVBA_LOG(INFO) << LOG_DESC("checkAndActived: collectEnoughActiveEcho")
                    << LOG_KV("activeEchoWeight", m_activeEchoWeight)
-                   << LOG_KV("minRequiredQuorum", m_config->minRequiredQuorum())
+                   << LOG_KV("minRequiredQuorum", m_minRequiredQuorum)
                    << LOG_KV("index", m_index) << m_config->printCurrentState();
     
     // 设置actived状态
     m_actived.store(true);
+
+    MVBA_LOG(INFO) << LOG_DESC("checkAndActived: m_actived changing success");
     
     // 创建Lock消息
     auto lockMsg = createLockMessage();
@@ -60,27 +67,28 @@ bool MVBACache::checkAndActived()
         return false;
     }
     
-    // 将自己的Lock消息添加到缓存
-    addLockCache(lockMsg, true);
+
     
     // 广播Lock消息
     MVBA_LOG(INFO) << LOG_DESC("checkAndActived: broadcast lockMsg")
-                   << LOG_KV("Idx", m_config->nodeIndex())
+                   << LOG_KV("Idx", m_config->observerNodeIndex())
                    << LOG_KV("hash", lockMsg->hash().abridged())
                    << LOG_KV("index", lockMsg->index());
     
     auto encodedData = m_config->mvbaCodec()->encode(lockMsg);
     // 向观察节点广播消息
     m_config->frontService()->asyncSendBroadcastMessage(
-        bcos::protocol::NodeType::OBSERVER_NODE, ModuleID::PBFT, ref(*encodedData));
-    
+        bcos::protocol::NodeType::OBSERVER_NODE, 1000, ref(*encodedData));
+
+      // 将自己的Lock消息添加到缓存
+    addLockCache(lockMsg);
     return true;
 }
 
 bool MVBACache::checkAndLocked()
 {
-    // 如果已经locked或者finished，返回false
-    if (m_locked || m_finished)
+    // 如果已经locked,返回false
+    if (m_locked)
     {
         return false;
     }
@@ -93,7 +101,7 @@ bool MVBACache::checkAndLocked()
     
     MVBA_LOG(INFO) << LOG_DESC("checkAndLocked: collectEnoughLockEcho")
                    << LOG_KV("lockEchoWeight", m_lockEchoWeight)
-                   << LOG_KV("minRequiredQuorum", m_config->minRequiredQuorum())
+                   << LOG_KV("minRequiredQuorum", m_minRequiredQuorum)
                    << LOG_KV("index", m_index) << m_config->printCurrentState();
     
     // 设置locked状态
@@ -108,19 +116,21 @@ bool MVBACache::checkAndLocked()
         return false;
     }
     
-    // 将自己的Finish消息添加到缓存
-    addFinishCache(finishMsg);
+
     
     // 广播Finish消息
     MVBA_LOG(INFO) << LOG_DESC("checkAndLocked: broadcast finishMsg")
-                   << LOG_KV("Idx", m_config->nodeIndex())
+                   << LOG_KV("Idx", m_config->observerNodeIndex())
                    << LOG_KV("hash", finishMsg->hash().abridged())
                    << LOG_KV("index", finishMsg->index());
     
     auto encodedData = m_config->mvbaCodec()->encode(finishMsg);
     // 向观察节点广播消息
     m_config->frontService()->asyncSendBroadcastMessage(
-        bcos::protocol::NodeType::OBSERVER_NODE, ModuleID::PBFT, ref(*encodedData));
+        bcos::protocol::NodeType::OBSERVER_NODE, 1000, ref(*encodedData));
+
+    // 将自己的Finish消息添加到缓存
+    addFinishCache(finishMsg);
     
     // 调用lock通知回调
     if (m_lockNotifier)
@@ -147,7 +157,7 @@ bool MVBACache::checkAndFinished()
     
     MVBA_LOG(INFO) << LOG_DESC("checkAndFinished: collectEnoughFinish")
                    << LOG_KV("finishWeight", m_finishWeight)
-                   << LOG_KV("minRequiredQuorum", m_config->minRequiredQuorum())
+                   << LOG_KV("minRequiredQuorum", m_minRequiredQuorum)
                    << LOG_KV("index", m_index) << m_config->printCurrentState();
     
     // 设置finished状态
@@ -175,23 +185,35 @@ MVBAMessageInterface::Ptr MVBACache::createActiveMessage()
     auto activeProposal = m_config->mvbaMessageFactory()->createMVBAProposal();
     activeProposal->setIndex(m_activeProposal->index());
     activeProposal->setRound(m_activeProposal->round());
-    activeProposal->setSealerId(m_config->nodeIndex()); // 使用自己的sealerId
+    activeProposal->setSealerId(m_config->observerNodeIndex()); // 使用自己的sealerId
     activeProposal->setPayloadHash(m_activeProposal->payloadHash());
     activeProposal->setMvbaInput(m_activeProposal->mvbaInput());
-    
+
+        
+    if (!activeProposal) {
+            MVBA_LOG(ERROR) << LOG_DESC("Failed to create activeMsg");
+            return nullptr;
+        }
+
     // 创建Active消息
     auto activeMsg = m_config->mvbaMessageFactory()->populateFrom(
         MVBAPacketType::ActivePacket,
         m_config->mvbaMsgDefaultVersion(),
         m_config->view(), 
         utcTime(),
-        m_config->nodeIndex(),
+        m_config->observerNodeIndex(),
         activeProposal,
         m_config->cryptoSuite(),
         m_config->keyPair(),
         true,  // active = true
         false  // needProof = false
     );
+
+
+    if (!activeMsg) {
+            MVBA_LOG(ERROR) << LOG_DESC("Failed to create activeMsg");
+            return nullptr;
+        }
     
     return activeMsg;
 }
@@ -209,7 +231,7 @@ MVBAMessageInterface::Ptr MVBACache::createLockMessage()
     auto lockProposal = m_config->mvbaMessageFactory()->createMVBAProposal();
     lockProposal->setIndex(m_myActive->index());
     lockProposal->setRound(m_myActive->round());
-    lockProposal->setSealerId(m_config->nodeIndex());
+    lockProposal->setSealerId(m_config->observerNodeIndex());
     lockProposal->setPayloadHash(m_myActiveHash);
     
     // 从activeEchoList中收集签名证明
@@ -222,7 +244,7 @@ MVBAMessageInterface::Ptr MVBACache::createLockMessage()
         m_config->mvbaMsgDefaultVersion(),
         m_config->view(),
         utcTime(),
-        m_config->nodeIndex(),
+        m_config->observerNodeIndex(),
         lockProposal,
         m_config->cryptoSuite(),
         m_config->keyPair(),
@@ -246,7 +268,7 @@ MVBAMessageInterface::Ptr MVBACache::createFinishMessage()
     auto finishProposal = m_config->mvbaMessageFactory()->createMVBAProposal();
     finishProposal->setIndex(m_myLock->index());
     finishProposal->setRound(m_myLock->round());
-    finishProposal->setSealerId(m_config->nodeIndex());
+    finishProposal->setSealerId(m_config->observerNodeIndex());
     finishProposal->setPayloadHash(m_myLockHash);
     
     // 从lockEchoList中收集签名证明
@@ -259,7 +281,7 @@ MVBAMessageInterface::Ptr MVBACache::createFinishMessage()
         m_config->mvbaMsgDefaultVersion(),
         m_config->view(),
         utcTime(),
-        m_config->nodeIndex(),
+        m_config->observerNodeIndex(),
         finishProposal,
         m_config->cryptoSuite(),
         m_config->keyPair(),
@@ -272,7 +294,7 @@ MVBAMessageInterface::Ptr MVBACache::createFinishMessage()
 
 MVBAMessageInterface::Ptr MVBACache::createActiveEchoMessage(MVBAMessageInterface::Ptr _active, bcos::crypto::HashType _activeHash)
 {
-    if (_activeHash.empty())
+    if (!_active)
     {
         MVBA_LOG(ERROR) << LOG_DESC("createActiveEchoMessage: no myActiveHash")
                         << LOG_KV("index", m_index) << m_config->printCurrentState();
@@ -295,7 +317,7 @@ MVBAMessageInterface::Ptr MVBACache::createActiveEchoMessage(MVBAMessageInterfac
         m_config->mvbaMsgDefaultVersion(),
         m_config->view(),
         utcTime(),
-        m_config->nodeIndex(),
+        m_config->observerNodeIndex(),
         activeEcho,
         m_config->cryptoSuite(),
         m_config->keyPair(),
@@ -307,7 +329,7 @@ MVBAMessageInterface::Ptr MVBACache::createActiveEchoMessage(MVBAMessageInterfac
 
 MVBAMessageInterface::Ptr MVBACache::createLockEchoMessage(MVBAMessageInterface::Ptr _lock, bcos::crypto::HashType _lockHash)
 {
-    if (_lockHash.empty())
+    if (!_lock)
     {
         MVBA_LOG(ERROR) << LOG_DESC("createLockEchoMessage: no myLockHash")
                         << LOG_KV("index", m_index) << m_config->printCurrentState();
@@ -330,7 +352,7 @@ MVBAMessageInterface::Ptr MVBACache::createLockEchoMessage(MVBAMessageInterface:
         m_config->mvbaMsgDefaultVersion(),
         m_config->view(),
         utcTime(),
-        m_config->nodeIndex(),
+        m_config->observerNodeIndex(),
         lockEcho,
         m_config->cryptoSuite(),
         m_config->keyPair(),
@@ -354,13 +376,15 @@ void MVBACache::setSignatureList(MVBAProposalInterface::Ptr _proposal, Collectio
     // 遍历缓存中的消息，提取签名
     for (auto const& it : _cache)
     {
-        auto nodeIndex = it.first;
+        auto observerNodeIndex = it.first;
         auto mvbaMessage = it.second;
         
-        if (!mvbaMessage || !mvbaMessage->mvbaProposal())
+        if (!mvbaMessage || !mvbaMessage->mvbaEcho())
         {
             MVBA_LOG(WARNING) << LOG_DESC("setSignatureList: invalid message or proposal")
-                              << LOG_KV("nodeIndex", nodeIndex);
+                              << LOG_KV("observerNodeIndex", observerNodeIndex)
+                              << LOG_KV("mvbaMessage", (void*)mvbaMessage.get())
+                              << LOG_KV("mvbaMessage->mvbaProposal", (void*)mvbaMessage->mvbaEcho().get());
             continue;
         }
         
@@ -369,15 +393,15 @@ void MVBACache::setSignatureList(MVBAProposalInterface::Ptr _proposal, Collectio
         if (signature.empty())
         {
             MVBA_LOG(WARNING) << LOG_DESC("setSignatureList: empty signature")
-                              << LOG_KV("nodeIndex", nodeIndex);
+                              << LOG_KV("observerNodeIndex", observerNodeIndex);
             continue;
         }
         
         // 将节点索引和签名添加到proposal中
-        _proposal->appendSignatureProof(nodeIndex, ref(signature));
+        _proposal->appendSignatureProof(observerNodeIndex, signature);
         
         MVBA_LOG(TRACE) << LOG_DESC("setSignatureList: added signature")
-                        << LOG_KV("nodeIndex", nodeIndex)
+                        << LOG_KV("observerNodeIndex", observerNodeIndex)
                         << LOG_KV("signatureSize", signature.size());
     }
     
@@ -386,4 +410,46 @@ void MVBACache::setSignatureList(MVBAProposalInterface::Ptr _proposal, Collectio
                    << LOG_KV("index", _proposal->index())
                    << LOG_KV("round", _proposal->round())
                    << LOG_KV("sealerId", _proposal->sealerId());
+}
+
+
+bcos::crypto::HashType MVBACache::getProposalHash() const
+{
+    // 优先返回active proposal的hash
+    if (m_activeProposal)
+    {
+        return m_activeProposal->payloadHash();
+    }
+    
+    // 如果没有active proposal，尝试从myActive中获取
+    if (m_myActive && m_myActive->mvbaProposal())
+    {
+        return m_myActive->mvbaProposal()->payloadHash();
+    }
+    
+    // 如果都没有，返回空hash
+    MVBA_LOG(WARNING) << LOG_DESC("getProposalHash: no proposal found")
+                      << LOG_KV("index", m_index);
+    
+    return bcos::crypto::HashType();
+}
+
+MVBAMessageInterface::Ptr MVBACache::getLeaderFinishMessage(IndexType _leaderId) const
+{
+    // 在finish消息缓存中查找指定leader的消息
+    auto it = m_finishList.find(_leaderId);
+    if (it != m_finishList.end())
+    {
+        MVBA_LOG(INFO) << LOG_DESC("getLeaderFinishMessage: found leader finish message")
+                       << LOG_KV("index", m_index)
+                       << LOG_KV("leaderId", _leaderId);
+        return it->second;
+    }
+    
+    MVBA_LOG(INFO) << LOG_DESC("getLeaderFinishMessage: leader finish message not found")
+                   << LOG_KV("index", m_index)
+                   << LOG_KV("leaderId", _leaderId)
+                   << LOG_KV("finishListSize", m_finishList.size());
+    
+    return nullptr;
 }

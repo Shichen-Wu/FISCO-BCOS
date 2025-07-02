@@ -19,7 +19,11 @@
  * @date 2024-12-15
  */
 #pragma once
-#include "../protocol/ProtocolTypeDef.h"
+#include <bcos-crypto/interfaces/crypto/CommonType.h>
+#include <bcos-crypto/interfaces/crypto/CryptoSuite.h>
+#include <bcos-crypto/interfaces/crypto/KeyPairInterface.h>
+#include <bcos-framework/consensus/ConsensusTypeDef.h>
+#include <memory>
 #include <vector>
 
 namespace bcos::consensus

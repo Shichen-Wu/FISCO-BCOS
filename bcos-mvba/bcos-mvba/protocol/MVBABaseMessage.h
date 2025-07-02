@@ -20,7 +20,7 @@
  */
 #pragma once
 #include "../interfaces/MVBABaseMessageInterface.h"
-#include "../protocol/MVBA.pb.h"
+#include "bcos-mvba/protocol/MVBA.pb.h"
 #include "bcos-utilities/Common.h"
 #include <bcos-protocol/Common.h>
 
@@ -33,12 +33,12 @@ class MVBABaseMessage : virtual public MVBABaseMessageInterface
 public:
     using Ptr = std::shared_ptr<MVBABaseMessage>;
     MVBABaseMessage()
-      : m_baseMessage(std::make_shared<BaseMessage>()),
+      : m_baseMessage(std::make_shared<MVBARawBaseMessage>()),
         m_signatureData(std::make_shared<bytes>()),
         m_createTime(bcos::utcTime())
     {}
 
-    explicit MVBABaseMessage(std::shared_ptr<BaseMessage> _baseMessage)
+    explicit MVBABaseMessage(std::shared_ptr<MVBARawBaseMessage> _baseMessage)
       : m_baseMessage(std::move(_baseMessage)),
         m_signatureData(std::make_shared<bytes>()),
         m_createTime(bcos::utcTime())
@@ -172,10 +172,10 @@ protected:
         }
     }
 
-    std::shared_ptr<BaseMessage> baseMessage() { return m_baseMessage; }
-    void setBaseMessage(std::shared_ptr<BaseMessage> _baseMessage) { m_baseMessage = _baseMessage; }
+    std::shared_ptr<MVBARawBaseMessage> baseMessage() { return m_baseMessage; }
+    void setBaseMessage(std::shared_ptr<MVBARawBaseMessage> _baseMessage) { m_baseMessage = _baseMessage; }
 
-    std::shared_ptr<BaseMessage> m_baseMessage;
+    std::shared_ptr<MVBARawBaseMessage> m_baseMessage;
     bcos::crypto::HashType m_hash;
     MVBAPacketType m_packetType = MVBAPacketType::ActivePacket;
 

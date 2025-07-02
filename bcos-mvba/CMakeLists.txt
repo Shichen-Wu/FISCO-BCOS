@@ -47,7 +47,8 @@ find_package(jsoncpp CONFIG REQUIRED)
 
 file(GLOB_RECURSE SRCS bcos-mvba/*.cpp)
 add_library(${MVBA_TARGET} ${SRCS} ${MESSAGES_SRCS})
-target_link_libraries(${MVBA_TARGET} PUBLIC ${TXPOOL_TARGET} ${LEDGER_TARGET} ${UTILITIES_TARGET} ${TOOL_TARGET} ${PBFT_TARGET} bcos-framework jsoncpp_static)
+include_directories(${CMAKE_BINARY_DIR}/bcos-pbft/)
+target_link_libraries(${MVBA_TARGET} PUBLIC ${TXPOOL_TARGET} ${LEDGER_TARGET} ${UTILITIES_TARGET} ${TOOL_TARGET} bcos-framework jsoncpp_static)
 set_source_files_properties(
     "bcos-mvba/protocol/MVBA.pb.cc"
     PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)

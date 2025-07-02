@@ -43,6 +43,9 @@ public:
     // the nodeIndex of this node
     IndexType nodeIndex() const override { return m_nodeIndex; }
 
+    IndexType observerNodeIndex() const override { return m_observerNodeIndex; }
+    ConsensusNodeList observerNodeList() const override;
+
     bool isConsensusNode() const override
     {
         return (m_nodeIndex != NON_CONSENSUS_NODE) && m_asMasterNode.load();
@@ -93,7 +96,9 @@ public:
 
     virtual void updateQuorum() = 0;
     IndexType getNodeIndexByNodeID(bcos::crypto::PublicPtr _nodeID);
+    IndexType getObserverNodeIndexByNodeID(bcos::crypto::PublicPtr _nodeID);
     ConsensusNode* getConsensusNodeByIndex(IndexType _nodeIndex);
+    ConsensusNode* getObserverNodeByIndex(IndexType _nodeIndex);
     bcos::crypto::KeyPairInterface::Ptr keyPair() { return m_keyPair; }
 
     virtual void setBlockTxCountLimit(uint64_t _blockTxCountLimit)
@@ -108,6 +113,8 @@ public:
     }
 
     IndexType consensusNodesNum() const { return m_consensusNodeNum.load(); }
+
+    IndexType observerNodesNum() const { return m_observerNodeList.size(); }
 
     void setObserverNodeList(ConsensusNodeList _observerNodeList);
 
@@ -141,12 +148,15 @@ public:
     }
     bool singlePointConsensus() const { return m_singlePointConsensus; }
 
+
 protected:
     static bool isNodeExist(ConsensusNode const& _node, ConsensusNodeList const& _nodeList);
 
     bcos::crypto::KeyPairInterface::Ptr m_keyPair;
     std::atomic<IndexType> m_nodeIndex = 0;
     std::atomic<IndexType> m_consensusNodeNum = {0};
+
+    std::atomic<IndexType> m_observerNodeIndex = 0;
 
     ConsensusNodeList m_consensusNodeList;
     mutable bcos::SharedMutex x_consensusNodeList;

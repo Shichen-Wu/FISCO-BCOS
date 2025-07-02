@@ -48,6 +48,8 @@ public:
 
     MVBABaseMessageInterface::Ptr decode(bytesConstRef _data) const override;
 
+    MVBAMessageInterface::Ptr decodeToMVBAMessage(bytesConstRef _data) const override;
+
 protected:
     virtual bool shouldHandleSignature(MVBAPacketType _packetType) const
     {
@@ -58,7 +60,8 @@ protected:
                 _packetType == MVBAPacketType::LockEchoPacket ||
                 _packetType == MVBAPacketType::FinishPacket ||
                 _packetType == MVBAPacketType::PrevotePacket ||
-                _packetType == MVBAPacketType::VotePacket);
+                _packetType == MVBAPacketType::VotePacket ||
+                _packetType == MVBAPacketType::NotifyFinishedPacket);
     }
 
 private:

@@ -13,8 +13,8 @@
  *  See the License for the specific language governing permissions and
  *  limitations under the License.
  *
- * @brief interface for MVBARawEcho
- * @file MVBARawEchoInterface.h
+ * @brief interface for MVBAEcho
+ * @file MVBAEchoInterface.h
  * @author: yujiechen
  * @date 2024-12-15
  */
@@ -30,9 +30,9 @@ namespace consensus
 class MVBAEchoInterface
 {
 public:
-    using Ptr = std::shared_ptr<MVBARawEchoInterface>;
-    MVBARawEchoInterface() = default;
-    virtual ~MVBARawEchoInterface() = default;
+    using Ptr = std::shared_ptr<MVBAEchoInterface>;
+    MVBAEchoInterface() = default;
+    virtual ~MVBAEchoInterface() = default;
 
     virtual bytesPointer encode() const = 0;
     virtual void decode(bytesConstRef _data) = 0;
@@ -51,7 +51,7 @@ public:
 };
 
 template <typename T>
-inline std::string printMVBARawEcho(T _rep)
+inline std::string printMVBAEcho(T _rep)
 {
     std::ostringstream stringstream;
     stringstream << LOG_KV("repIndex", _rep->index())

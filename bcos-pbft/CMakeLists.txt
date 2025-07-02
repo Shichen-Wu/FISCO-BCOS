@@ -41,6 +41,7 @@ foreach(proto_file ${MESSAGES_PROTOS})
 endforeach()
 
 include_directories(${PROTO_OUTPUT_PATH})
+include_directories(${CMAKE_BINARY_DIR}/bcos-mvba/)
 
 find_package(Protobuf CONFIG REQUIRED)
 find_package(jsoncpp CONFIG REQUIRED)
