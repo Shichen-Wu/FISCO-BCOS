@@ -148,7 +148,7 @@ void PBFTEngine::start()
     while (true){
     try {
         // 等待10秒
-        std::this_thread::sleep_for(std::chrono::seconds(180));
+        std::this_thread::sleep_for(std::chrono::seconds(10));
         
         // 检查引擎是否还在运行状态
         if (m_stopped.load()) {
@@ -156,7 +156,7 @@ void PBFTEngine::start()
             return;
         }
         
-        PBFT_LOG(INFO) << LOG_DESC("after PBFTEngine 180s start MVBA");
+        PBFT_LOG(INFO) << LOG_DESC("after PBFTEngine 10s start MVBA");
         
         // 调用MVBA入口
         if (m_mvbaProcessor) {
@@ -175,7 +175,7 @@ void PBFTEngine::start()
     }
     }).detach(); 
 
-    PBFT_LOG(INFO) << LOG_DESC("PBFTEnginehas started, MVBA will start after 180s");
+    PBFT_LOG(INFO) << LOG_DESC("PBFTEnginehas started, MVBA will start after 10s");
 }
 
 void PBFTEngine::tryToResendCheckPoint()
