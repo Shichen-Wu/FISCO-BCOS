@@ -47,7 +47,6 @@ PBFTEngine::PBFTEngine(PBFTConfig::Ptr _config)
 {
     auto cacheFactory = std::make_shared<PBFTCacheFactory>();
     m_cacheProcessor = std::make_shared<PBFTCacheProcessor>(cacheFactory, _config);
-    m_mvbaProcessor = std::make_shared<MVBAProcessor>(_config);
     m_logSync = std::make_shared<PBFTLogSync>(m_config, m_cacheProcessor);
     // register the timeout function
     m_config->timer()->registerTimeoutHandler(boost::bind(&PBFTEngine::onTimeout, this));
@@ -75,6 +74,9 @@ PBFTEngine::PBFTEngine(PBFTConfig::Ptr _config)
     // Timer is used to manage checkpoint timeout
     m_timer =
         std::make_shared<PBFTTimer>(m_config->checkPointTimeoutInterval(), "checkPointResendTimer");
+    
+    // create MVBAprocessor
+    m_mvbaProcessor = std::make_shared<MVBAProcessor>(_config);
 }
 
 void PBFTEngine::initSendResponseHandler()
@@ -141,41 +143,7 @@ void PBFTEngine::start()
     {
         triggerTimeout(false);
     }
-
-    //启动MVBA实例
     m_mvbaProcessor->start();
-    std::thread([this]() {
-    while (true){
-    try {
-        // 等待10秒
-        std::this_thread::sleep_for(std::chrono::seconds(180));
-        
-        // 检查引擎是否还在运行状态
-        if (m_stopped.load()) {
-            PBFT_LOG(INFO) << LOG_DESC("PBFTEngine has stopped，cancel MVBA instance");
-            return;
-        }
-        
-        PBFT_LOG(INFO) << LOG_DESC("after PBFTEngine 180s start MVBA");
-        
-        // 调用MVBA入口
-        if (m_mvbaProcessor) {
-            m_mvbaProcessor->mockAndStartMVBAInstance();
-            PBFT_LOG(INFO) << LOG_DESC("MVBA start success");
-        } else {
-            PBFT_LOG(WARNING) << LOG_DESC("MVBA processor does not exit");
-        }
-        
-    } catch (const std::exception& e) {
-        PBFT_LOG(ERROR) << LOG_DESC("MVBA starts error") 
-                        << LOG_KV("error", e.what());
-    } catch (...) {
-        PBFT_LOG(ERROR) << LOG_DESC("error: unknown MVBA error");
-    }
-    }
-    }).detach(); 
-
-    PBFT_LOG(INFO) << LOG_DESC("PBFTEnginehas started, MVBA will start after 180s");
 }
 
 void PBFTEngine::tryToResendCheckPoint()
@@ -215,6 +183,10 @@ void PBFTEngine::stop()
     {
         m_timer->stop();
         m_timer->destroy();
+    }
+    if (m_mvbaProcessor)
+    {
+        m_mvbaProcessor->stop();
     }
     PBFT_LOG(INFO) << LOG_DESC("stop the PBFTEngine");
 }
@@ -506,6 +478,117 @@ void PBFTEngine::asyncNotifyNewBlock(
                        << LOG_KV("hash", _ledgerConfig->hash().abridged());
         finalizeConsensus(_ledgerConfig, true);
     }
+
+    // RPBFT+MVBA 实验逻辑：
+    // 当接近每个 epoch 结束（blockNumber 落在 epoch_block_num - mvba_block_num 处）时，
+    // 检查当前 sealer 委员会中“敌手节点”（index 排在前 1/3 的节点）占比是否超过 1/3，
+    // 若是，则启动一次基于模拟数据的 MVBA 实例。
+    do
+    {
+        // 仅在 RPBFT 共识类型下启用
+        if (m_config->consensusType() != ledger::ConsensusType::RPBFT_TYPE)
+        {
+            break;
+        }
+        if (!m_mvbaProcessor)
+        {
+            break;
+        }
+
+        auto const& ledgerConfig = _ledgerConfig;
+        auto epochInfo = ledgerConfig->epochBlockNum();
+        auto epochBlockNum = std::get<0>(epochInfo);
+        auto enableNumber = std::get<1>(epochInfo);
+        if (epochBlockNum == 0)
+        {
+            break;
+        }
+
+        // 实验参数：距离 epoch 结束前 mvbaBlockNum 个区块开始触发检查
+        constexpr uint64_t mvbaBlockNum = 10;
+        if (epochBlockNum <= mvbaBlockNum)
+        {
+            break;
+        }
+
+        auto currentNumber = ledgerConfig->blockNumber() + 1;
+        if (currentNumber < enableNumber)
+        {
+            break;
+        }
+
+        auto offsetInEpoch = (currentNumber - enableNumber) % epochBlockNum;
+        if (offsetInEpoch != epochBlockNum - mvbaBlockNum)
+        {
+            break;
+        }
+
+        // 读取当前工作 sealer 列表和候选节点列表
+        auto workingSealerList = ledgerConfig->consensusNodeList();
+        auto candidateList = ledgerConfig->candidateSealerNodeList();
+        if (workingSealerList.empty() || candidateList.empty())
+        {
+            break;
+        }
+
+        auto totalNodes = candidateList.size();
+        auto adversaryLimit = totalNodes / 3;
+        if (adversaryLimit == 0)
+        {
+            break;
+        }
+
+        // 定义“敌手节点”：在 candidateList 中按 index 排序，index < totalNodes / 3 的节点
+        size_t adversaryCount = 0;
+        for (auto const& sealer : workingSealerList)
+        {
+            // 查找该 sealer 在 candidateList 中的全局 index
+            size_t idx = 0;
+            for (; idx < candidateList.size(); ++idx)
+            {
+                if (candidateList[idx].nodeID->data() == sealer.nodeID->data())
+                {
+                    break;
+                }
+            }
+
+            if (idx < adversaryLimit)
+            {
+                ++adversaryCount;
+            }
+        }
+
+        // 敌手节点数超过 sealer 总数的 1/3，才触发 MVBA 实验
+        if (adversaryCount * 3 <= workingSealerList.size())
+        {
+            break;
+        }
+
+        // 条件满足，启动一次模拟 MVBA 实例（仅在节点未停止时）
+        try
+        {
+            if (!m_mvbaProcessor->isRunning())
+            {
+                m_mvbaProcessor->start();
+            }
+
+            if (!m_stopped.load())
+            {
+                m_mvbaProcessor->mockAndStartMVBAInstance();
+                PBFT_LOG(INFO) << LOG_DESC("Trigger mock MVBA instance before epoch ends")
+                               << LOG_KV("blockNumber", ledgerConfig->blockNumber())
+                               << LOG_KV("epochBlockNum", epochBlockNum)
+                               << LOG_KV("mvbaBlockNum", mvbaBlockNum)
+                               << LOG_KV("workingSealerNum", workingSealerList.size())
+                               << LOG_KV("adversaryCount", adversaryCount);
+            }
+        }
+        catch (std::exception const& e)
+        {
+            PBFT_LOG(WARNING) << LOG_DESC("mock MVBA instance failed")
+                              << LOG_KV("error", boost::diagnostic_information(e));
+        }
+    } while (false);
 }
 
 void PBFTEngine::onReceivePBFTMessage(
@@ -651,9 +734,9 @@ void PBFTEngine::onReceiveMVBAMessage(Error::Ptr _error, NodeIDPtr _fromNode, by
         //mvbaMsg->setFrom(_fromNode);
         
         
-        PBFT_LOG(INFO) << LOG_DESC("onReceiveMVBAMessage:")
-                        << LOG_KV("packetType", (int32_t)mvbaMsg->packetType())
-                        << LOG_KV("fromNode", m_config->getObserverNodeIndexByNodeID(_fromNode));
+        //PBFT_LOG(INFO) << LOG_DESC("onReceiveMVBAMessage:")
+        //                << LOG_KV("packetType", (int32_t)mvbaMsg->packetType())
+        //                << LOG_KV("fromNode", m_config->getObserverNodeIndexByNodeID(_fromNode));
 
         m_mvbaProcessor->handleMVBAMessage(mvbaMsg);
     }

@@ -20,7 +20,9 @@
  */
 #include "MVBACacheProcessor.h"
 #include <algorithm>
+#include <chrono>
 #include <shared_mutex>
+#include <thread>
 
 using namespace bcos;
 using namespace bcos::consensus;
@@ -93,10 +95,10 @@ bool MVBACacheProcessor::processActiveMessage(MVBAMessageInterface::Ptr _activeM
     if (result)
     {
         m_processedActiveCount++;
-        MVBA_LOG(INFO) << LOG_DESC("processActiveMessage success")
-                       << LOG_KV("index", _activeMsg->index())
-                       << LOG_KV("from", _activeMsg->generatedFrom())
-                       << LOG_KV("totalProcessed", m_processedActiveCount.load());
+        // MVBA_LOG(INFO) << LOG_DESC("processActiveMessage success")
+         //              << LOG_KV("index", _activeMsg->index())
+          //             << LOG_KV("from", _activeMsg->generatedFrom())
+           //            << LOG_KV("totalProcessed", m_processedActiveCount.load());
     }
     
     return result;
@@ -117,10 +119,10 @@ bool MVBACacheProcessor::processActiveEchoMessage(MVBAMessageInterface::Ptr _act
     if (result)
     {
         m_processedActiveEchoCount++;
-        MVBA_LOG(INFO) << LOG_DESC("processActiveEchoMessage success")
+        /* MVBA_LOG(INFO) << LOG_DESC("processActiveEchoMessage success")
                        << LOG_KV("index", _activeEchoMsg->index())
                        << LOG_KV("from", _activeEchoMsg->generatedFrom())
-                       << LOG_KV("totalProcessed", m_processedActiveEchoCount.load());
+                       << LOG_KV("totalProcessed", m_processedActiveEchoCount.load());*/
     }
     
     return result;
@@ -141,10 +143,10 @@ bool MVBACacheProcessor::processLockMessage(MVBAMessageInterface::Ptr _lockMsg)
     if (result)
     {
         m_processedLockCount++;
-        MVBA_LOG(INFO) << LOG_DESC("processLockMessage success")
+        /* MVBA_LOG(INFO) << LOG_DESC("processLockMessage success")
                        << LOG_KV("index", _lockMsg->index())
                        << LOG_KV("from", _lockMsg->generatedFrom())
-                       << LOG_KV("totalProcessed", m_processedLockCount.load());
+                       << LOG_KV("totalProcessed", m_processedLockCount.load()); */
     }
     
     return result;
@@ -165,10 +167,10 @@ bool MVBACacheProcessor::processLockEchoMessage(MVBAMessageInterface::Ptr _lockE
     if (result)
     {
         m_processedLockEchoCount++;
-        MVBA_LOG(INFO) << LOG_DESC("processLockEchoMessage success")
+        /* MVBA_LOG(INFO) << LOG_DESC("processLockEchoMessage success")
                        << LOG_KV("index", _lockEchoMsg->index())
                        << LOG_KV("from", _lockEchoMsg->generatedFrom())
-                       << LOG_KV("totalProcessed", m_processedLockEchoCount.load());
+                       << LOG_KV("totalProcessed", m_processedLockEchoCount.load()); */
     }
     
     return result;
@@ -189,10 +191,10 @@ bool MVBACacheProcessor::processFinishMessage(MVBAMessageInterface::Ptr _finishM
     if (result)
     {
         m_processedFinishCount++;
-        MVBA_LOG(INFO) << LOG_DESC("processFinishMessage success")
+        /* MVBA_LOG(INFO) << LOG_DESC("processFinishMessage success")
                        << LOG_KV("index", _finishMsg->index())
                        << LOG_KV("from", _finishMsg->generatedFrom())
-                       << LOG_KV("totalProcessed", m_processedFinishCount.load());
+                       << LOG_KV("totalProcessed", m_processedFinishCount.load()); */
     }
     
     return result;
@@ -316,24 +318,24 @@ void MVBACacheProcessor::checkAndAdvance(EpochIndexType _index)
     // 检查并推进Active阶段
     if (!cache->isActived() && cache->checkAndActived())
     {
-        MVBA_LOG(INFO) << LOG_DESC("checkAndAdvance: cache actived")
-                       << LOG_KV("index", _index);
+        //MVBA_LOG(INFO) << LOG_DESC("checkAndAdvance: cache actived")
+        //               << LOG_KV("index", _index);
         stateChanged = true;
     }
     
     // 检查并推进Lock阶段
     if (!cache->isLocked() && cache->checkAndLocked())
     {
-        MVBA_LOG(INFO) << LOG_DESC("checkAndAdvance: cache locked")
-                       << LOG_KV("index", _index);
+        //MVBA_LOG(INFO) << LOG_DESC("checkAndAdvance: cache locked")
+        //               << LOG_KV("index", _index);
         stateChanged = true;
     }
     
     // 检查并推进Finish阶段
     if (!cache->isFinished() && cache->checkAndFinished())
     {
-        MVBA_LOG(INFO) << LOG_DESC("checkAndAdvance: cache finished")
-                       << LOG_KV("index", _index);
+       // MVBA_LOG(INFO) << LOG_DESC("checkAndAdvance: cache finished")
+       //                << LOG_KV("index", _index);
         stateChanged = true;
     }
 
@@ -351,7 +353,6 @@ void MVBACacheProcessor::checkAndAdvance(EpochIndexType _index)
 
 void MVBACacheProcessor::updateFinishedState(MVBAMessageInterface::Ptr _notifyFinishedMsg)
 {
-    
     // 获取消息的index
     auto index = _notifyFinishedMsg->index();
     
@@ -367,54 +368,28 @@ void MVBACacheProcessor::updateFinishedState(MVBAMessageInterface::Ptr _notifyFi
     // 检查cache的isFinished标记是否为1
     if (cache->isFinished())
     {
-        MVBA_LOG(INFO) << LOG_DESC("processNotifyFinishedMessage: cache already finished")
-                       << LOG_KV("index", index);
+       //MVBA_LOG(INFO) << LOG_DESC("processNotifyFinishedMessage: cache already finished")
+       //                << LOG_KV("index", index);
     }
     
-    // 获取消息proposal里的sealerId
-    auto sealerId = _notifyFinishedMsg->mvbaProposal()->sealerId();
-    
-    // 从cache里获取proposal进行leader选举计算
-    auto proposalHash = cache->getProposalHash();
-    if (!proposalHash)
-    {
-        MVBA_LOG(ERROR) << LOG_DESC("processNotifyFinishedMessage: empty proposal hash")
-                        << LOG_KV("index", index);
-    }
-    
-    // 计算elected leader
-    auto electedLeader = calculateElectedLeader(proposalHash);
-    
-    // 检查计算出的leader是否等于sealerId
-    if (static_cast<int64_t>(electedLeader) == sealerId)
-    {
-        //TODO：MVBA输出后更新区块链逻辑
-        MVBA_LOG(INFO) << LOG_DESC("processNotifyFinishedMessage: MVBA已完成")
-                       << LOG_KV("index", index)
-                       << LOG_KV("electedLeader", electedLeader)
-                       << LOG_KV("sealerId", sealerId)
-                       << LOG_KV("proposalHash", proposalHash.abridged());
-        
-        ////发送NotifyFinished消息
-        auto encodedData = m_config->mvbaCodec()->encode(_notifyFinishedMsg);
+    // TODO：MVBA输出后更新区块链逻辑
+    // 当前阶段仅转发NotifyFinished并清理对应cache
+    auto encodedData = m_config->mvbaCodec()->encode(_notifyFinishedMsg);
 
-        m_config->frontService()->asyncSendBroadcastMessage(
-        bcos::protocol::NodeType::OBSERVER_NODE, ModuleID::PBFT, ref(*encodedData));
-        
-        // MVBA完成，删除cache
-        removeCache(index);
-        m_currentIndex++;
-        
-    }
-    else
-    {
-        MVBA_LOG(WARNING) << LOG_DESC("processNotifyFinishedMessage: leader不匹配")
-                          << LOG_KV("index", index)
-                          << LOG_KV("electedLeader", electedLeader)
-                          << LOG_KV("sealerId", sealerId)
-                          << LOG_KV("proposalHash", proposalHash.abridged());
-    }
-
+    auto delaySeconds = std::chrono::seconds((m_config->observerNodeIndex() / 50) + 1);
+    auto frontService = m_config->frontService();
+    std::thread([frontService, encodedData, delaySeconds]() {
+        std::this_thread::sleep_for(delaySeconds);
+        if (frontService)
+        {
+            frontService->asyncSendBroadcastMessage(
+                bcos::protocol::NodeType::OBSERVER_NODE, ModuleID::PBFT, ref(*encodedData));
+        }
+    }).detach();
+    
+    // MVBA完成，删除cache
+    removeCache(index);
+    m_currentIndex++;
 }
 
 void MVBACacheProcessor::handleFinishedCache(EpochIndexType _index)
@@ -443,10 +418,10 @@ void MVBACacheProcessor::handleFinishedCache(EpochIndexType _index)
     // 计算elected leader
     auto electedLeader = calculateElectedLeader(proposalHash);
     
-    MVBA_LOG(INFO) << LOG_DESC("handleFinishedCache: calculated elected leader")
+    /* MVBA_LOG(INFO) << LOG_DESC("handleFinishedCache: calculated elected leader")
                    << LOG_KV("index", _index)
                    << LOG_KV("proposalHash", proposalHash.abridged())
-                   << LOG_KV("electedLeader", electedLeader);
+                   << LOG_KV("electedLeader", electedLeader); */
     
     // 查找elected leader的finish消息
     auto leaderFinishMsg = cache->getLeaderFinishMessage(electedLeader);
@@ -460,8 +435,16 @@ void MVBACacheProcessor::handleFinishedCache(EpochIndexType _index)
         leaderFinishMsg->setPacketType(NotifyFinishedPacket);
         auto encodedData = m_config->mvbaCodec()->encode(leaderFinishMsg);
 
-        m_config->frontService()->asyncSendBroadcastMessage(
-        bcos::protocol::NodeType::OBSERVER_NODE, ModuleID::PBFT, ref(*encodedData));
+        auto delaySeconds = std::chrono::seconds((m_config->observerNodeIndex() / 50) + 1);
+        auto frontService = m_config->frontService();
+        std::thread([frontService, encodedData, delaySeconds]() {
+            std::this_thread::sleep_for(delaySeconds);
+            if (frontService)
+            {
+                frontService->asyncSendBroadcastMessage(
+                    bcos::protocol::NodeType::OBSERVER_NODE, ModuleID::PBFT, ref(*encodedData));
+            }
+        }).detach();
         
         // 找到了leader的finish消息，处理完成，删除cache
         removeCache(_index);
@@ -657,3 +640,4 @@ void MVBACacheProcessor::printCacheStatus() const
         }
     }
 }
+

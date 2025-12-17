@@ -30,6 +30,8 @@
 #include <atomic>
 #include <vector>
 #include <functional>
+#include <thread>
+#include <chrono>
 
 namespace bcos::consensus
 {

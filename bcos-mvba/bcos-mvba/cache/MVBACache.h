@@ -25,10 +25,12 @@
 #include "../interfaces/MVBAEchoInterface.h"
 #include "../utilities/Common.h"
 #include "bcos-framework/bcos-framework/protocol/Protocol.h"
-#include <memory> 
-#include <map>
 #include <atomic>
+#include <chrono>
 #include <functional>
+#include <map>
+#include <memory>
+#include <thread>
 
 namespace bcos::consensus
 {
@@ -60,6 +62,9 @@ public:
         // 记录active消息的generatedFrom和hash映射
         m_activeList[generatedFrom] = messageHash;
 
+        MVBA_LOG(INFO) << LOG_DESC("addActiveCache: has received active message: ")
+                            << LOG_KV("number", m_activeList.size());
+
         // 如果是第一个active消息，保存proposal并创建自己的active消息
         if (!m_activeProposal)
         {
@@ -67,7 +72,6 @@ public:
             // 创建自己的active消息
             auto myActiveMsg = createActiveMessage();
 
-            MVBA_LOG(INFO) << LOG_DESC("Creat my own ActiveCache");
             if (myActiveMsg)
             {
                 m_myActive = myActiveMsg;
@@ -86,9 +90,20 @@ public:
                 auto encodedData = m_config->mvbaCodec()->encode(myActiveMsg);
 
                 MVBA_LOG(INFO) << LOG_DESC("encodeActiveCache Success");
-                // 向观察节点广播消息
-                m_config->frontService()->asyncSendBroadcastMessage(
-                    bcos::protocol::NodeType::OBSERVER_NODE, 1000, ref(*encodedData));
+                // 异步延迟广播：每50个index分组递增1秒
+                auto delaySeconds =
+                    std::chrono::seconds((m_config->observerNodeIndex() / 50) + 1);
+                auto frontService = m_config->frontService();
+                std::thread([frontService, encodedData, delaySeconds]() {
+                    std::this_thread::sleep_for(delaySeconds);
+                    if (frontService)
+                    {
+                        frontService->asyncSendBroadcastMessage(
+                            bcos::protocol::NodeType::OBSERVER_NODE, 1000, ref(*encodedData));
+                    }
+                }).detach();
+                MVBA_LOG(INFO) << LOG_DESC("broadcast Active Message scheduled")
+                               << LOG_KV("delaySec", delaySeconds.count());
             }
             else
             {
@@ -110,21 +125,21 @@ public:
                 m_myActive = _activeMsg;
                 m_myActiveHash = messageHash;
                 
-                MVBA_LOG(INFO) << LOG_DESC("addActiveCache: add my activeEcho to local cache")
+                /* MVBA_LOG(INFO) << LOG_DESC("addActiveCache: add my activeEcho to local cache")
                             << LOG_KV("myNodeIndex", m_config->observerNodeIndex())
                             << LOG_KV("activeHash", messageHash.abridged())
-                            << LOG_KV("index", m_index);
+                            << LOG_KV("index", m_index); */
                 
                 addActiveEchoCache(activeEchoMsg);
             }
             else
             {
                 // 如果不是自己的消息，发送activeEcho给active的generatedFrom
-                MVBA_LOG(INFO) << LOG_DESC("addActiveCache: send activeEcho to sealer")
+                /* MVBA_LOG(INFO) << LOG_DESC("addActiveCache: send activeEcho to sealer")
                             << LOG_KV("toSealerId", generatedFrom)
                             << LOG_KV("myNodeIndex", m_config->observerNodeIndex())
                             << LOG_KV("activeHash", messageHash.abridged())
-                            << LOG_KV("index", m_index);
+                            << LOG_KV("index", m_index);*/
                 
                 auto encodedData = m_config->mvbaCodec()->encode(activeEchoMsg);
                 
@@ -134,6 +149,9 @@ public:
                 {
                     // 发送activeEcho消息给active的generatedFrom
                     //TODO: ModuleID暂时用1000
+                    // MVBA_LOG(INFO) << LOG_DESC("addActiveCache: send activeEcho to sealer")
+                                   // << LOG_KV("toSealerId", generatedFrom);
+                    
                     m_config->frontService()->asyncSendMessageByNodeID(
                         1000, 
                         nodeInfo->nodeID, 
@@ -156,9 +174,9 @@ public:
                             << LOG_KV("index", m_index) << m_config->printCurrentState();
         }
         
-        MVBA_LOG(INFO) << LOG_DESC("addActiveCache") << LOG_KV("generatedFrom", generatedFrom)
+        /* MVBA_LOG(INFO) << LOG_DESC("addActiveCache") << LOG_KV("generatedFrom", generatedFrom)
                     << LOG_KV("hash", messageHash.abridged()) 
-                    << LOG_KV("index", m_index) << m_config->printCurrentState();
+                    << LOG_KV("index", m_index) << m_config->printCurrentState(); */
     }
 
     // 添加ActiveEcho消息
@@ -195,8 +213,8 @@ public:
         m_activeEchoWeight++; // += nodeInfo->voteWeight;
         
         MVBA_LOG(INFO) << LOG_DESC("addActiveEchoCache") << LOG_KV("from", generatedFrom)
-                       << LOG_KV("activeEchoWeight", m_activeEchoWeight) << LOG_KV("index", m_index)
-                       << m_config->printCurrentState();
+                       << LOG_KV("activeEchoWeight", m_activeEchoWeight) << LOG_KV("index", m_index);
+        //               << m_config->printCurrentState();
     }
 
     // 添加Lock消息
@@ -214,6 +232,9 @@ public:
         
         // 记录lock消息
         m_lockList[generatedFrom] = _lockMsg;
+
+        MVBA_LOG(INFO) << LOG_DESC("addLockCache: has received active message: ")
+                            << LOG_KV("number", m_lockList.size());
         
          // 创建lockEcho消息
         auto lockEchoMsg = createLockEchoMessage(_lockMsg, messageHash);
@@ -238,11 +259,11 @@ public:
             else
             {
                 // 如果不是自己的消息，发送lockEcho给lock的generatedFrom
-                MVBA_LOG(INFO) << LOG_DESC("addLockCache: send lockEcho to sealer")
+                /* MVBA_LOG(INFO) << LOG_DESC("addLockCache: send lockEcho to sealer")
                             << LOG_KV("toSealerId", generatedFrom)
                             << LOG_KV("myNodeIndex", m_config->observerNodeIndex())
                             << LOG_KV("lockHash", messageHash.abridged())
-                            << LOG_KV("index", m_index);
+                            << LOG_KV("index", m_index);*/
                 
                 auto encodedData = m_config->mvbaCodec()->encode(lockEchoMsg);
                 
@@ -251,6 +272,7 @@ public:
                 if (nodeInfo)
                 {
                     // 发送lockEcho消息给lock的generatedFrom
+                    
                     m_config->frontService()->asyncSendMessageByNodeID(
                         1000, 
                         nodeInfo->nodeID, 
@@ -273,9 +295,9 @@ public:
                             << LOG_KV("index", m_index) << m_config->printCurrentState();
         }
         
-        MVBA_LOG(INFO) << LOG_DESC("addLockCache") << LOG_KV("generatedFrom", generatedFrom)
-                    << LOG_KV("hash", messageHash.abridged()) 
-                    << LOG_KV("index", m_index) << m_config->printCurrentState();
+         MVBA_LOG(INFO) << LOG_DESC("addLockCache") << LOG_KV("generatedFrom", generatedFrom)
+                    << LOG_KV("hash", messageHash.abridged()); 
+        //            << LOG_KV("index", m_index) << m_config->printCurrentState(); 
         
     }
 
@@ -312,8 +334,8 @@ public:
         m_lockEchoWeight++; // += nodeInfo->voteWeight;
         
         MVBA_LOG(INFO) << LOG_DESC("addLockEchoCache") << LOG_KV("from", generatedFrom)
-                       << LOG_KV("lockEchoWeight", m_lockEchoWeight) << LOG_KV("index", m_index)
-                       << m_config->printCurrentState();
+                       << LOG_KV("lockEchoWeight", m_lockEchoWeight) << LOG_KV("index", m_index);
+        //               << m_config->printCurrentState(); 
     }
 
     // 添加Finish消息
@@ -337,8 +359,8 @@ public:
         
         m_finishWeight++; // += nodeInfo->voteWeight;
         
-        MVBA_LOG(INFO) << LOG_DESC("addFinishCache") << LOG_KV("from", generatedFrom)
-                       << LOG_KV("index", m_index) << m_config->printCurrentState();
+        //MVBA_LOG(INFO) << LOG_DESC("addFinishCache") << LOG_KV("from", generatedFrom)
+        //               << LOG_KV("index", m_index) << m_config->printCurrentState(); 
     }
 
     // 检查并尝试结束active阶段：当收到的activeEchoWeight超过了阈值，也即collectEnoughActiveEcho返回了true，则将m_actived设为1，create lock消息，广播lock消息，并将lock存入mylock，然后返回true；

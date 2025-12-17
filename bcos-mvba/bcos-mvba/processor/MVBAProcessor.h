@@ -143,8 +143,8 @@ protected:
     
     // 配置参数
     uint64_t m_instanceTimeout{300000};  // 30秒实例超时
-    uint64_t m_messageTimeout{10000};   // 10秒消息超时
-    size_t m_maxPendingMessages{10000}; // 最大pending消息数
+    uint64_t m_messageTimeout{100000};   // 10秒消息超时
+    size_t m_maxPendingMessages{1000000}; // 最大pending消息数
     size_t m_maxCacheInstances{100};    // 最大缓存实例数
 
     // 统计信息

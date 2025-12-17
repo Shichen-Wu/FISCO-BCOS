@@ -20,6 +20,8 @@
  */
 #include "MVBACache.h"
 #include "../interfaces/MVBAMessageFactory.h"
+#include <chrono>
+#include <thread>
 
 using namespace bcos;
 using namespace bcos::consensus;
@@ -39,8 +41,6 @@ bool MVBACache::checkAndActived()
     {
         return false;
     }
-    MVBA_LOG(INFO) << LOG_DESC("checkAndActived: m_minRequiredQuorum")
-                   << LOG_KV("m_minRequiredQuorum", m_minRequiredQuorum);
 
     // 检查是否收集到足够的ActiveEcho
     if (!collectEnoughActiveEcho())
@@ -67,8 +67,6 @@ bool MVBACache::checkAndActived()
         return false;
     }
     
-
-    
     // 广播Lock消息
     MVBA_LOG(INFO) << LOG_DESC("checkAndActived: broadcast lockMsg")
                    << LOG_KV("Idx", m_config->observerNodeIndex())
@@ -76,9 +74,17 @@ bool MVBACache::checkAndActived()
                    << LOG_KV("index", lockMsg->index());
     
     auto encodedData = m_config->mvbaCodec()->encode(lockMsg);
-    // 向观察节点广播消息
-    m_config->frontService()->asyncSendBroadcastMessage(
-        bcos::protocol::NodeType::OBSERVER_NODE, 1000, ref(*encodedData));
+    // 异步延迟广播：每50个index分组递增1秒
+    auto delaySeconds = std::chrono::seconds((m_config->observerNodeIndex() / 50) + 1);
+    auto frontService = m_config->frontService();
+    std::thread([frontService, encodedData, delaySeconds]() {
+        std::this_thread::sleep_for(delaySeconds);
+        if (frontService)
+        {
+            frontService->asyncSendBroadcastMessage(
+                bcos::protocol::NodeType::OBSERVER_NODE, 1000, ref(*encodedData));
+        }
+    }).detach();
 
       // 将自己的Lock消息添加到缓存
     addLockCache(lockMsg);
@@ -125,9 +131,17 @@ bool MVBACache::checkAndLocked()
                    << LOG_KV("index", finishMsg->index());
     
     auto encodedData = m_config->mvbaCodec()->encode(finishMsg);
-    // 向观察节点广播消息
-    m_config->frontService()->asyncSendBroadcastMessage(
-        bcos::protocol::NodeType::OBSERVER_NODE, 1000, ref(*encodedData));
+    // 异步延迟广播：每50个index分组递增1秒
+    auto delaySeconds = std::chrono::seconds((m_config->observerNodeIndex() / 50) + 1);
+    auto frontService = m_config->frontService();
+    std::thread([frontService, encodedData, delaySeconds]() {
+        std::this_thread::sleep_for(delaySeconds);
+        if (frontService)
+        {
+            frontService->asyncSendBroadcastMessage(
+                bcos::protocol::NodeType::OBSERVER_NODE, 1000, ref(*encodedData));
+        }
+    }).detach();
 
     // 将自己的Finish消息添加到缓存
     addFinishCache(finishMsg);
@@ -453,3 +467,4 @@ MVBAMessageInterface::Ptr MVBACache::getLeaderFinishMessage(IndexType _leaderId)
     
     return nullptr;
 }
+

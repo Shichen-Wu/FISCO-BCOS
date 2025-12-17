@@ -29,15 +29,16 @@ using namespace bcos::crypto;
 MVBAProcessor::MVBAProcessor(PBFTConfig::Ptr _config)
   : m_config(std::move(_config))
 {
+
+    m_messageFactory = std::make_shared<MVBAMessageFactoryImpl>();
+
     // 创建编解码器
     m_codec = std::make_shared<MVBACodec>(
         m_config->keyPair(), 
         m_config->cryptoSuite(),
-        std::make_shared<MVBAMessageFactoryImpl>()
+        m_messageFactory
     );
     
-    // 创建消息工厂
-    m_messageFactory = std::make_shared<MVBAMessageFactoryImpl>();
     
     // 创建缓存处理器
     auto cacheFactory = std::make_shared<MVBACacheFactory>();
@@ -242,7 +243,7 @@ void MVBAProcessor::processMessageQueue()
         if (msg)
         {
             if (m_cacheProcessor->isInvalidMVBAIndex(msg->index())){
-                MVBA_LOG(INFO) << LOG_DESC("Index is outdated");
+                //MVBA_LOG(INFO) << LOG_DESC("Index is outdated");
                 continue;
             }
             try
