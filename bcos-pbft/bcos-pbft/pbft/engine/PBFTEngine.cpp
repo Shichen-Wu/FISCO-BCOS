@@ -33,6 +33,8 @@
 #include <bcos-framework/protocol/Protocol.h>
 #include <bcos-utilities/ThreadPool.h>
 #include <boost/bind/bind.hpp>
+#include <algorithm>
+#include <random>
 #include <utility>
 
 using namespace bcos;
@@ -495,8 +497,7 @@ void PBFTEngine::asyncNotifyNewBlock(
             break;
         }
 
-        auto const& ledgerConfig = _ledgerConfig;
-        auto epochInfo = ledgerConfig->epochBlockNum();
+        auto epochInfo = _ledgerConfig->epochBlockNum();
         auto epochBlockNum = std::get<0>(epochInfo);
         auto enableNumber = std::get<1>(epochInfo);
         if (epochBlockNum == 0)
@@ -511,60 +512,73 @@ void PBFTEngine::asyncNotifyNewBlock(
             break;
         }
 
-        auto currentNumber = ledgerConfig->blockNumber() + 1;
+        auto currentNumber = _ledgerConfig->blockNumber() + 1;
         if (currentNumber < enableNumber)
         {
             break;
         }
 
-        auto offsetInEpoch = (currentNumber - enableNumber) % epochBlockNum;
-        if (offsetInEpoch != epochBlockNum - mvbaBlockNum)
+        // 读取当前工作 sealer 列表
+        auto workingSealerList = _ledgerConfig->consensusNodeList();
+        if (workingSealerList.empty())
         {
             break;
         }
 
-        // 读取当前工作 sealer 列表和候选节点列表
-        auto workingSealerList = ledgerConfig->consensusNodeList();
-        auto candidateList = ledgerConfig->candidateSealerNodeList();
-        if (workingSealerList.empty() || candidateList.empty())
+        // 计算全体节点数量：共识节点 + 候选 sealer + 观察节点
+        auto observerList = _ledgerConfig->observerNodeList();
+        std::size_t consensusNum = workingSealerList.size();
+        std::size_t totalNodes = consensusNum + observerList.size();
+
+        if (totalNodes == 0 || consensusNum == 0 || totalNodes < consensusNum)
         {
             break;
         }
 
-        auto totalNodes = candidateList.size();
-        auto adversaryLimit = totalNodes / 3;
-        if (adversaryLimit == 0)
+        // 随机从 [1, totalNodes] 中选出 consensusNum 个不重复的数字
+        std::vector<std::size_t> allIndices(totalNodes);
+        for (std::size_t i = 0; i < totalNodes; ++i)
+        {
+            // 使用 1-based 编号，便于与“敌手区间”定义对应
+            allIndices[i] = i + 1;
+        }
+
+        // 简单使用 blockNumber 作为随机种子的一部分，保证不同高度有不同抽样
+        std::mt19937_64 gen(
+            static_cast<std::mt19937_64::result_type>(_ledgerConfig->blockNumber() + 1));
+        std::shuffle(allIndices.begin(), allIndices.end(), gen);
+
+        // 取前 consensusNum 个作为本轮“模拟 sealer 委员会”
+        std::vector<std::size_t> selectedIndices;
+        selectedIndices.reserve(consensusNum);
+        for (std::size_t i = 0; i < consensusNum; ++i)
+        {
+            selectedIndices.push_back(allIndices[i]);
+        }
+
+        // 定义“敌手节点”：编号在 [1, floor(0.3 * totalNodes)] 的节点
+        std::size_t adversaryBoundary = (totalNodes * 3) / 10;  // floor(0.3 * n)
+        if (adversaryBoundary == 0)
         {
             break;
         }
 
-        // 定义“敌手节点”：在 candidateList 中按 index 排序，index < totalNodes / 3 的节点
-        size_t adversaryCount = 0;
-        for (auto const& sealer : workingSealerList)
+        std::size_t adversaryCount = 0;
+        for (auto idx : selectedIndices)
         {
-            // 查找该 sealer 在 candidateList 中的全局 index
-            size_t idx = 0;
-            for (; idx < candidateList.size(); ++idx)
-            {
-                if (candidateList[idx].nodeID->data() == sealer.nodeID->data())
-                {
-                    break;
-                }
-            }
-
-            if (idx < adversaryLimit)
+            if (idx <= adversaryBoundary)
             {
                 ++adversaryCount;
             }
         }
 
-        // 敌手节点数超过 sealer 总数的 1/3，才触发 MVBA 实验
-        if (adversaryCount * 3 <= workingSealerList.size())
+        // 模拟委员会中“敌手编号”超过 floor(x/3) 个时，触发一次 MVBA 实验
+        if (adversaryCount * 3 <= consensusNum)
         {
             break;
         }
 
-        // 条件满足，启动一次模拟 MVBA 实例（仅在节点未停止时）
+        // 条件满足，启动一次模拟 MVBA 实例（仅在节点未停止时），并打印当前总节点和 observer 数量
         try
         {
             if (!m_mvbaProcessor->isRunning())
@@ -576,10 +590,12 @@ void PBFTEngine::asyncNotifyNewBlock(
             {
                 m_mvbaProcessor->mockAndStartMVBAInstance();
                 PBFT_LOG(INFO) << LOG_DESC("Trigger mock MVBA instance before epoch ends")
-                               << LOG_KV("blockNumber", ledgerConfig->blockNumber())
+                               << LOG_KV("blockNumber", _ledgerConfig->blockNumber())
                                << LOG_KV("epochBlockNum", epochBlockNum)
                                << LOG_KV("mvbaBlockNum", mvbaBlockNum)
-                               << LOG_KV("workingSealerNum", workingSealerList.size())
+                               << LOG_KV("workingSealerNum", consensusNum)
+                               << LOG_KV("totalNodeNum", totalNodes)
+                               << LOG_KV("observerNodeNum", observerList.size())
                                << LOG_KV("adversaryCount", adversaryCount);
             }
         }
