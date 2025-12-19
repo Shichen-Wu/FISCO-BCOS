@@ -483,17 +483,20 @@ void PBFTEngine::asyncNotifyNewBlock(
 
     // RPBFT+MVBA 实验逻辑：
     // 当接近每个 epoch 结束（blockNumber 落在 epoch_block_num - mvba_block_num 处）时，
-    // 检查当前 sealer 委员会中“敌手节点”（index 排在前 1/3 的节点）占比是否超过 1/3，
+    // 检查当前 sealer 委员会中"敌手节点"（index 排在前 1/3 的节点）占比是否超过 1/3，
     // 若是，则启动一次基于模拟数据的 MVBA 实例。
     do
     {
         // 仅在 RPBFT 共识类型下启用
         if (m_config->consensusType() != ledger::ConsensusType::RPBFT_TYPE)
         {
+            PBFT_LOG(DEBUG) << LOG_DESC("MVBA trigger check skipped: not RPBFT consensus type")
+                           << LOG_KV("consensusType", m_config->consensusType());
             break;
         }
         if (!m_mvbaProcessor)
         {
+            PBFT_LOG(DEBUG) << LOG_DESC("MVBA trigger check skipped: mvbaProcessor is null");
             break;
         }
 
@@ -502,6 +505,7 @@ void PBFTEngine::asyncNotifyNewBlock(
         auto enableNumber = std::get<1>(epochInfo);
         if (epochBlockNum == 0)
         {
+            PBFT_LOG(DEBUG) << LOG_DESC("MVBA trigger check skipped: epochBlockNum is 0");
             break;
         }
 
@@ -509,12 +513,18 @@ void PBFTEngine::asyncNotifyNewBlock(
         constexpr uint64_t mvbaBlockNum = 10;
         if (epochBlockNum <= mvbaBlockNum)
         {
+            PBFT_LOG(DEBUG) << LOG_DESC("MVBA trigger check skipped: epochBlockNum too small")
+                           << LOG_KV("epochBlockNum", epochBlockNum)
+                           << LOG_KV("mvbaBlockNum", mvbaBlockNum);
             break;
         }
 
         auto currentNumber = _ledgerConfig->blockNumber() + 1;
         if (currentNumber < enableNumber)
         {
+            PBFT_LOG(DEBUG) << LOG_DESC("MVBA trigger check skipped: currentNumber < enableNumber")
+                           << LOG_KV("currentNumber", currentNumber)
+                           << LOG_KV("enableNumber", enableNumber);
             break;
         }
 
@@ -522,6 +532,7 @@ void PBFTEngine::asyncNotifyNewBlock(
         auto workingSealerList = _ledgerConfig->consensusNodeList();
         if (workingSealerList.empty())
         {
+            PBFT_LOG(DEBUG) << LOG_DESC("MVBA trigger check skipped: workingSealerList is empty");
             break;
         }
 
@@ -530,8 +541,20 @@ void PBFTEngine::asyncNotifyNewBlock(
         std::size_t consensusNum = workingSealerList.size();
         std::size_t totalNodes = consensusNum + observerList.size();
 
+        PBFT_LOG(DEBUG) << LOG_DESC("MVBA trigger check: node statistics")
+                       << LOG_KV("consensusNum", consensusNum)
+                       << LOG_KV("observerNum", observerList.size())
+                       << LOG_KV("totalNodes", totalNodes)
+                       << LOG_KV("blockNumber", _ledgerConfig->blockNumber())
+                       << LOG_KV("epochBlockNum", epochBlockNum)
+                       << LOG_KV("currentNumber", currentNumber)
+                       << LOG_KV("enableNumber", enableNumber);
+
         if (totalNodes == 0 || consensusNum == 0 || totalNodes < consensusNum)
         {
+            PBFT_LOG(DEBUG) << LOG_DESC("MVBA trigger check skipped: invalid node counts")
+                           << LOG_KV("totalNodes", totalNodes)
+                           << LOG_KV("consensusNum", consensusNum);
             break;
         }
 
@@ -539,7 +562,7 @@ void PBFTEngine::asyncNotifyNewBlock(
         std::vector<std::size_t> allIndices(totalNodes);
         for (std::size_t i = 0; i < totalNodes; ++i)
         {
-            // 使用 1-based 编号，便于与“敌手区间”定义对应
+            // 使用 1-based 编号，便于与"敌手区间"定义对应
             allIndices[i] = i + 1;
         }
 
@@ -548,7 +571,7 @@ void PBFTEngine::asyncNotifyNewBlock(
             static_cast<std::mt19937_64::result_type>(_ledgerConfig->blockNumber() + 1));
         std::shuffle(allIndices.begin(), allIndices.end(), gen);
 
-        // 取前 consensusNum 个作为本轮“模拟 sealer 委员会”
+        // 取前 consensusNum 个作为本轮"模拟 sealer 委员会"
         std::vector<std::size_t> selectedIndices;
         selectedIndices.reserve(consensusNum);
         for (std::size_t i = 0; i < consensusNum; ++i)
@@ -556,10 +579,12 @@ void PBFTEngine::asyncNotifyNewBlock(
             selectedIndices.push_back(allIndices[i]);
         }
 
-        // 定义“敌手节点”：编号在 [1, floor(0.3 * totalNodes)] 的节点
+        // 定义"敌手节点"：编号在 [1, floor(0.3 * totalNodes)] 的节点
         std::size_t adversaryBoundary = (totalNodes * 3) / 10;  // floor(0.3 * n)
         if (adversaryBoundary == 0)
         {
+            PBFT_LOG(DEBUG) << LOG_DESC("MVBA trigger check skipped: adversaryBoundary is 0")
+                           << LOG_KV("totalNodes", totalNodes);
             break;
         }
 
@@ -572,31 +597,88 @@ void PBFTEngine::asyncNotifyNewBlock(
             }
         }
 
-        // 模拟委员会中“敌手编号”超过 floor(x/3) 个时，触发一次 MVBA 实验
+        // 计算触发阈值：floor(consensusNum / 3)
+        std::size_t triggerThreshold = consensusNum / 3;
+        
+        PBFT_LOG(DEBUG) << LOG_DESC("MVBA trigger check: adversary calculation")
+                       << LOG_KV("adversaryBoundary", adversaryBoundary)
+                       << LOG_KV("adversaryCount", adversaryCount)
+                       << LOG_KV("consensusNum", consensusNum)
+                       << LOG_KV("triggerThreshold", triggerThreshold)
+                       << LOG_KV("selectedIndices", [&selectedIndices]() {
+                           std::string indicesStr;
+                           for (size_t i = 0; i < selectedIndices.size(); ++i) {
+                               if (i > 0) indicesStr += ",";
+                               indicesStr += std::to_string(selectedIndices[i]);
+                           }
+                           return indicesStr;
+                       }())
+                       << LOG_KV("condition", (adversaryCount * 3 > consensusNum) ? "MET" : "NOT_MET")
+                       << LOG_KV("adversaryCount*3", adversaryCount * 3)
+                       << LOG_KV("consensusNum", consensusNum);
+
+        // 模拟委员会中"敌手编号"超过 floor(x/3) 个时，触发一次 MVBA 实验
+        // 条件：adversaryCount * 3 > consensusNum，即 adversaryCount > consensusNum / 3
         if (adversaryCount * 3 <= consensusNum)
         {
+            PBFT_LOG(DEBUG) << LOG_DESC("MVBA trigger check: condition not met")
+                           << LOG_KV("adversaryCount", adversaryCount)
+                           << LOG_KV("consensusNum", consensusNum)
+                           << LOG_KV("adversaryCount*3", adversaryCount * 3)
+                           << LOG_KV("triggerThreshold", triggerThreshold)
+                           << LOG_KV("required", triggerThreshold + 1);
             break;
         }
 
         // 条件满足，启动一次模拟 MVBA 实例（仅在节点未停止时），并打印当前总节点和 observer 数量
+        PBFT_LOG(INFO) << LOG_DESC("MVBA trigger condition MET, attempting to start MVBA")
+                       << LOG_KV("blockNumber", _ledgerConfig->blockNumber())
+                       << LOG_KV("epochBlockNum", epochBlockNum)
+                       << LOG_KV("mvbaBlockNum", mvbaBlockNum)
+                       << LOG_KV("currentNumber", currentNumber)
+                       << LOG_KV("enableNumber", enableNumber)
+                       << LOG_KV("workingSealerNum", consensusNum)
+                       << LOG_KV("totalNodeNum", totalNodes)
+                       << LOG_KV("observerNodeNum", observerList.size())
+                       << LOG_KV("adversaryBoundary", adversaryBoundary)
+                       << LOG_KV("adversaryCount", adversaryCount)
+                       << LOG_KV("triggerThreshold", triggerThreshold)
+                       << LOG_KV("adversaryCount*3", adversaryCount * 3)
+                       << LOG_KV("consensusNum", consensusNum)
+                       << LOG_KV("selectedIndices", [&selectedIndices]() {
+                           std::string indicesStr;
+                           for (size_t i = 0; i < selectedIndices.size(); ++i) {
+                               if (i > 0) indicesStr += ",";
+                               indicesStr += std::to_string(selectedIndices[i]);
+                           }
+                           return indicesStr;
+                       }());
+        
         try
         {
             if (!m_mvbaProcessor->isRunning())
             {
+                PBFT_LOG(INFO) << LOG_DESC("Starting MVBA processor");
                 m_mvbaProcessor->start();
             }
 
             if (!m_stopped.load())
             {
+                PBFT_LOG(INFO) << LOG_DESC("Calling mockAndStartMVBAInstance");
                 m_mvbaProcessor->mockAndStartMVBAInstance();
-                PBFT_LOG(INFO) << LOG_DESC("Trigger mock MVBA instance before epoch ends")
+                PBFT_LOG(INFO) << LOG_DESC("Successfully triggered mock MVBA instance")
                                << LOG_KV("blockNumber", _ledgerConfig->blockNumber())
                                << LOG_KV("epochBlockNum", epochBlockNum)
                                << LOG_KV("mvbaBlockNum", mvbaBlockNum)
                                << LOG_KV("workingSealerNum", consensusNum)
                                << LOG_KV("totalNodeNum", totalNodes)
                                << LOG_KV("observerNodeNum", observerList.size())
-                               << LOG_KV("adversaryCount", adversaryCount);
+                               << LOG_KV("adversaryCount", adversaryCount)
+                               << LOG_KV("triggerThreshold", triggerThreshold);
+            }
+            else
+            {
+                PBFT_LOG(WARNING) << LOG_DESC("MVBA trigger skipped: node is stopped");
             }
         }
         catch (std::exception const& e)
