@@ -38,17 +38,15 @@
 #include <condition_variable>
 #include <queue>
 
-namespace bcos::consensus
-{
-class MVBAProcessor : public std::enable_shared_from_this<MVBAProcessor>
-{
+namespace bcos::consensus {
+  class MVBAProcessor : public std::enable_shared_from_this<MVBAProcessor> {
 public:
     using Ptr = std::shared_ptr<MVBAProcessor>;
     using MessageHandler = std::function<void(MVBAMessageInterface::Ptr)>;
     using LockNotifyHandler = std::function<void(EpochIndexType)>;
     using FinishNotifyHandler = std::function<void(EpochIndexType)>;
     using RoundType = uint64_t;
-    
+
     MVBAProcessor(PBFTConfig::Ptr _config);
     virtual ~MVBAProcessor();
 
@@ -60,27 +58,36 @@ public:
 
     // 获取编解码器和消息工厂
     virtual MVBACodecInterface::Ptr codec() const { return m_codec; }
-    virtual MVBAMessageFactory::Ptr messageFactory() const { return m_messageFactory; }
-    virtual MVBACacheProcessor::Ptr cacheProcessor() const { return m_cacheProcessor; }
+    virtual MVBAMessageFactory::Ptr messageFactory() const {
+      return m_messageFactory;
+    }
+    virtual MVBACacheProcessor::Ptr cacheProcessor() const {
+      return m_cacheProcessor;
+    }
 
-    //MVBA消息判断
-    //virtual bool isMVBAMessage(bytesConstRef _data);
+    // MVBA消息判断
+    // virtual bool isMVBAMessage(bytesConstRef _data);
 
     // 主要消息处理入口
     virtual void handleMVBAMessage(MVBAMessageInterface::Ptr _msg);
 
     // MVBA协议状态管理
-    virtual void startMVBAInstance(EpochIndexType _index, EquivocationProof::Ptr _input, bcos::crypto::HashType _inputHash);
+    virtual void startMVBAInstance(EpochIndexType _index,
+                                   EquivocationProof::Ptr _input,
+                                   bcos::crypto::HashType _inputHash);
 
-    virtual void mockAndStartMVBAInstance();
-    
+    virtual void mockAndStartMVBAInstance(EpochIndexType index);
+
     // 获取当前MVBA状态
     virtual bool isRunning() const { return m_running; }
-    virtual EpochIndexType currentIndex() const { return m_currentIndex; }
 
     // 注册回调函数
-    virtual void registerLockNotifyHandler(LockNotifyHandler _handler) { m_lockNotifyHandler = _handler; }
-    virtual void registerFinishNotifyHandler(FinishNotifyHandler _handler) { m_finishNotifyHandler = _handler; }
+    virtual void registerLockNotifyHandler(LockNotifyHandler _handler) {
+      m_lockNotifyHandler = _handler;
+    }
+    virtual void registerFinishNotifyHandler(FinishNotifyHandler _handler) {
+      m_finishNotifyHandler = _handler;
+    }
 
     // 统计和监控接口
     virtual void printStatistics() const;
@@ -109,7 +116,7 @@ protected:
 
     // 清理和垃圾回收
     virtual void cleanupExpiredInstances();
-    
+
     // MVBA协议相关
     virtual void tryBroadcastActive(EpochIndexType _index, RoundType _round);
 
@@ -121,11 +128,8 @@ protected:
     MVBACacheProcessor::Ptr m_cacheProcessor;
 
     // 运行状态
-    std::atomic<bool> m_running{false};
-    std::atomic<bool> m_started{false};
-    
-    // 当前MVBA实例状态
-    std::atomic<EpochIndexType> m_currentIndex{0};
+    std::atomic<bool> m_running{ false };
+    std::atomic<bool> m_started{ false };
 
     // 消息队列和处理线程
     std::queue<MVBAMessageInterface::Ptr> m_messageQueue;
@@ -138,24 +142,24 @@ protected:
     FinishNotifyHandler m_finishNotifyHandler;
 
     // 定时器管理
-    std::map<EpochIndexType, std::shared_ptr<bcos::Timer>> m_instanceTimers;
+    std::map<EpochIndexType, std::shared_ptr<bcos::Timer> > m_instanceTimers;
     mutable std::mutex m_timersMutex;
-    
+
     // 配置参数
-    uint64_t m_instanceTimeout{300000};  // 30秒实例超时
-    uint64_t m_messageTimeout{100000};   // 10秒消息超时
-    size_t m_maxPendingMessages{1000000}; // 最大pending消息数
-    size_t m_maxCacheInstances{100};    // 最大缓存实例数
+    uint64_t m_instanceTimeout{ 300000 };   // 30秒实例超时
+    uint64_t m_messageTimeout{ 100000 };    // 10秒消息超时
+    size_t m_maxPendingMessages{ 1000000 }; // 最大pending消息数
+    size_t m_maxCacheInstances{ 100 };      // 最大缓存实例数
 
     // 统计信息
-    std::atomic<uint64_t> m_totalMessagesReceived{0};
-    std::atomic<uint64_t> m_totalMessagesSent{0};
-    std::atomic<uint64_t> m_totalActiveMessages{0};
-    std::atomic<uint64_t> m_totalLockMessages{0};
-    std::atomic<uint64_t> m_totalFinishMessages{0};
-    std::atomic<uint64_t> m_totalInvalidMessages{0};
+    std::atomic<uint64_t> m_totalMessagesReceived{ 0 };
+    std::atomic<uint64_t> m_totalMessagesSent{ 0 };
+    std::atomic<uint64_t> m_totalActiveMessages{ 0 };
+    std::atomic<uint64_t> m_totalLockMessages{ 0 };
+    std::atomic<uint64_t> m_totalFinishMessages{ 0 };
+    std::atomic<uint64_t> m_totalInvalidMessages{ 0 };
 
     // 互斥锁
     mutable std::shared_mutex m_mutex;
-};
-}  // namespace bcos::consensus
+  };
+} // namespace bcos::consensus
