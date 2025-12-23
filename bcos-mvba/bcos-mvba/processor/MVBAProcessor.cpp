@@ -211,9 +211,10 @@ void MVBAProcessor::processMessageQueue() {
     // 处理消息
     if (msg) {
       if (m_cacheProcessor->isInvalidMVBAIndex(msg->index())) {
-        MVBA_LOG(INFO) << LOG_DESC("Index is outdated");
-        << LOG_KV("index", msg->index())
-        << LOG_KV("currentIndex", m_cacheProcessor->currentIndex());
+        MVBA_LOG(INFO) << LOG_DESC("Index is outdated")
+                       << LOG_KV("index", msg->index())
+                       << LOG_KV("currentIndex",
+                                 m_cacheProcessor->currentIndex());
         continue;
       }
 
@@ -268,6 +269,10 @@ void MVBAProcessor::processMessageQueue() {
 }
 
 void MVBAProcessor::mockAndStartMVBAInstance(EpochIndexType index) {
+  m_mvbaInstanceNum++;
+  MVBA_LOG(INFO) << LOG_DESC("MVBAInstanceNumber")
+                 << LOG_KV("mvbaInstanceNum", m_mvbaInstanceNum);
+
   if (m_config->isConsensusNode()) {
     MVBA_LOG(INFO) << LOG_DESC("Node is not observer node");
     return;

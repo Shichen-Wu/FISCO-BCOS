@@ -152,6 +152,7 @@ protected:
     size_t m_maxCacheInstances{ 100 };      // 最大缓存实例数
 
     // 统计信息
+    std::atomic<uint64_t> m_mvbaInstanceNum{ 0 };
     std::atomic<uint64_t> m_totalMessagesReceived{ 0 };
     std::atomic<uint64_t> m_totalMessagesSent{ 0 };
     std::atomic<uint64_t> m_totalActiveMessages{ 0 };
