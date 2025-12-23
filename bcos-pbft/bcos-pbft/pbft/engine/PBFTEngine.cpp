@@ -80,10 +80,24 @@ PBFTEngine::PBFTEngine(PBFTConfig::Ptr _config)
 
   // Timer is used to manage checkpoint timeout
   m_timer = std::make_shared<PBFTTimer>(m_config->checkPointTimeoutInterval(),
-                                        "checkPointResendTimer");
+                                         "checkPointResendTimer");
 
-  // create MVBAprocessor
-  m_mvbaProcessor = std::make_shared<MVBAProcessor>(_config);
+  // create MVBAprocessor with exception handling
+  // 如果MVBAProcessor构造失败，不应该阻止整个节点启动
+  try {
+    m_mvbaProcessor = std::make_shared<MVBAProcessor>(_config);
+    PBFT_LOG(INFO) << LOG_DESC("MVBAProcessor created successfully");
+  }
+  catch (std::exception const& e) {
+    PBFT_LOG(WARNING) << LOG_DESC("Failed to create MVBAProcessor, node will continue without MVBA")
+                      << LOG_KV("error", boost::diagnostic_information(e));
+    // 不抛出异常，允许节点继续启动，但MVBA功能将不可用
+    m_mvbaProcessor = nullptr;
+  }
+  catch (...) {
+    PBFT_LOG(WARNING) << LOG_DESC("Failed to create MVBAProcessor with unknown exception, node will continue without MVBA");
+    m_mvbaProcessor = nullptr;
+  }
 }
 
 void PBFTEngine::initSendResponseHandler() {
@@ -144,7 +158,21 @@ void PBFTEngine::start() {
   if (!m_config->startRecovered()) {
     triggerTimeout(false);
   }
-  m_mvbaProcessor->start();
+  
+  // 启动MVBA处理器，添加异常处理避免启动失败
+  if (m_mvbaProcessor) {
+    try {
+      m_mvbaProcessor->start();
+    }
+    catch (std::exception const& e) {
+      PBFT_LOG(WARNING) << LOG_DESC("Failed to start MVBAProcessor")
+                        << LOG_KV("error", boost::diagnostic_information(e));
+      // 不抛出异常，允许节点继续启动，但MVBA功能将不可用
+    }
+  }
+  else {
+    PBFT_LOG(WARNING) << LOG_DESC("MVBAProcessor is null, skipping start");
+  }
 }
 
 void PBFTEngine::tryToResendCheckPoint() {
@@ -803,7 +831,7 @@ bool PBFTEngine::isMVBAMessage(bytesConstRef _data) const {
     }
   }
   catch (std::exception const &e) {
-    PBFT_LOG(TRACE) << LOG_DESC("isMVBAMessage: failed to parse message type")
+    PBFT_LOG(INFO) << LOG_DESC("isMVBAMessage: failed to parse message type")
                     << LOG_KV("error", boost::diagnostic_information(e));
     return false;
   }
@@ -816,10 +844,22 @@ void PBFTEngine::onReceiveMVBAMessage(Error::Ptr _error, NodeIDPtr _fromNode,
       return;
     }
 
+    // 检查MVBAProcessor是否可用
+    if (!m_mvbaProcessor) {
+      PBFT_LOG(INFO) << LOG_DESC("onReceiveMVBAMessage: MVBAProcessor not available")
+                      << LOG_KV("fromNode", _fromNode ? _fromNode->hex() : "null");
+      return;
+    }
+
     // Todo:检查节点
 
     // 使用MVBACodec解码消息
     auto mvbaMsg = m_config->mvbaCodec()->decodeToMVBAMessage(_data);
+    if (!mvbaMsg) {
+      PBFT_LOG(INFO) << LOG_DESC("onReceiveMVBAMessage: failed to decode message")
+                        << LOG_KV("fromNode", _fromNode ? _fromNode->hex() : "null");
+      return;
+    }
     // mvbaMsg->setFrom(_fromNode);
 
     // PBFT_LOG(INFO) << LOG_DESC("onReceiveMVBAMessage:")
@@ -830,8 +870,8 @@ void PBFTEngine::onReceiveMVBAMessage(Error::Ptr _error, NodeIDPtr _fromNode,
     m_mvbaProcessor->handleMVBAMessage(mvbaMsg);
   }
   catch (std::exception const &e) {
-    PBFT_LOG(WARNING) << LOG_DESC("onReceiveMVBAMessage exception")
-                      << LOG_KV("fromNode", _fromNode->hex())
+    PBFT_LOG(INFO) << LOG_DESC("onReceiveMVBAMessage exception")
+                      << LOG_KV("fromNode", _fromNode ? _fromNode->hex() : "null")
                       << LOG_KV("error", boost::diagnostic_information(e));
   }
 }

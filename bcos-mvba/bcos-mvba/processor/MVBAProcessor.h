@@ -130,6 +130,7 @@ protected:
     // 运行状态
     std::atomic<bool> m_running{ false };
     std::atomic<bool> m_started{ false };
+    mutable std::mutex m_startMutex;  // 保护start/stop操作的互斥锁
 
     // 消息队列和处理线程
     std::queue<MVBAMessageInterface::Ptr> m_messageQueue;
@@ -148,8 +149,12 @@ protected:
     // 配置参数
     uint64_t m_instanceTimeout{ 300000 };   // 30秒实例超时
     uint64_t m_messageTimeout{ 100000 };    // 10秒消息超时
-    size_t m_maxPendingMessages{ 1000000 }; // 最大pending消息数
+    size_t m_maxPendingMessages{ 10000 };  // 最大pending消息数（降低以防止内存问题）
     size_t m_maxCacheInstances{ 100 };      // 最大缓存实例数
+    
+    // 启动阶段保护
+    std::atomic<bool> m_startupComplete{ false };  // 启动完成标志
+    std::chrono::steady_clock::time_point m_startTime;  // 启动时间
 
     // 统计信息
     std::atomic<uint64_t> m_mvbaInstanceNum{ 0 };

@@ -21,6 +21,9 @@
 #include "MVBAProcessor.h"
 #include "../cache/MVBACacheFactory.h"
 #include <bcos-utilities/Common.h>
+#include <chrono>
+#include <thread>
+#include <future>
 
 using namespace bcos::consensus;
 using namespace bcos::protocol;
@@ -28,21 +31,49 @@ using namespace bcos::crypto;
 
 MVBAProcessor::MVBAProcessor(PBFTConfig::Ptr _config)
   : m_config(std::move(_config)) {
+  
+  if (!m_config) {
+    throw std::invalid_argument("MVBAProcessor: config cannot be null");
+  }
 
-  m_messageFactory = std::make_shared<MVBAMessageFactoryImpl>();
+  // 检查必要的配置项
+  if (!m_config->keyPair()) {
+    throw std::runtime_error("MVBAProcessor: keyPair is not initialized");
+  }
+  if (!m_config->cryptoSuite()) {
+    throw std::runtime_error("MVBAProcessor: cryptoSuite is not initialized");
+  }
 
-  // 创建编解码器
-  m_codec = std::make_shared<MVBACodec>(
-      m_config->keyPair(), m_config->cryptoSuite(), m_messageFactory);
+  try {
+    m_messageFactory = std::make_shared<MVBAMessageFactoryImpl>();
 
-  // 创建缓存处理器
-  auto cacheFactory = std::make_shared<MVBACacheFactory>();
-  m_cacheProcessor =
-      std::make_shared<MVBACacheProcessor>(m_config, cacheFactory);
+    // 创建编解码器
+    m_codec = std::make_shared<MVBACodec>(
+        m_config->keyPair(), m_config->cryptoSuite(), m_messageFactory);
 
-  MVBA_LOG(INFO) << LOG_DESC("MVBAProcessor constructed")
-                 << LOG_KV("nodeIndex", m_config->observerNodeIndex())
-                 << LOG_KV("nodeId", m_config->nodeID()->hex());
+    // 创建缓存处理器
+    auto cacheFactory = std::make_shared<MVBACacheFactory>();
+    m_cacheProcessor =
+        std::make_shared<MVBACacheProcessor>(m_config, cacheFactory);
+
+    // 安全地获取节点信息，避免访问未初始化的配置
+    try {
+      auto nodeId = m_config->nodeID();
+      auto observerIndex = m_config->observerNodeIndex();
+      MVBA_LOG(INFO) << LOG_DESC("MVBAProcessor constructed")
+                     << LOG_KV("nodeIndex", observerIndex)
+                     << LOG_KV("nodeId", nodeId ? nodeId->hex() : "null");
+    }
+    catch (std::exception const& e) {
+      MVBA_LOG(WARNING) << LOG_DESC("MVBAProcessor constructed with warning")
+                        << LOG_KV("error", boost::diagnostic_information(e));
+    }
+  }
+  catch (std::exception const& e) {
+    MVBA_LOG(ERROR) << LOG_DESC("MVBAProcessor construction failed")
+                    << LOG_KV("error", boost::diagnostic_information(e));
+    throw;  // 重新抛出异常，让调用者知道构造失败
+  }
 }
 
 MVBAProcessor::~MVBAProcessor() { stop(); }
@@ -68,22 +99,79 @@ void MVBAProcessor::init() {
 }
 
 void MVBAProcessor::start() {
+  // 使用锁保护启动过程，避免并发启动
+  std::lock_guard<std::mutex> startLock(m_startMutex);
+  
   if (m_started) {
+    MVBA_LOG(DEBUG) << LOG_DESC("MVBAProcessor already started");
     return;
   }
 
-  init();
+  try {
+    init();
 
-  m_running = true;
-  m_started = true;
+    // 先创建线程，再设置状态，避免竞态条件
+    // 启动消息处理线程，添加异常处理
+    std::thread newThread;
+    try {
+      newThread = std::thread([this]() {
+        try {
+          processMessageQueue();
+        }
+        catch (std::exception const& e) {
+          MVBA_LOG(ERROR) << LOG_DESC("MVBAProcessor message thread exception")
+                          << LOG_KV("error", boost::diagnostic_information(e));
+        }
+        catch (...) {
+          MVBA_LOG(ERROR) << LOG_DESC("MVBAProcessor message thread unknown exception");
+        }
+      });
+    }
+    catch (std::exception const& e) {
+      MVBA_LOG(ERROR) << LOG_DESC("Failed to create MVBAProcessor message thread")
+                      << LOG_KV("error", boost::diagnostic_information(e));
+      throw;  // 重新抛出异常，让调用者知道启动失败
+    }
+    catch (...) {
+      MVBA_LOG(ERROR) << LOG_DESC("Failed to create MVBAProcessor message thread with unknown exception");
+      throw;
+    }
 
-  // 启动消息处理线程
-  m_messageProcessThread = std::thread([this]() { processMessageQueue(); });
+    // 线程创建成功后再设置状态，确保线程能看到正确的状态
+    m_running = true;
+    m_messageProcessThread = std::move(newThread);
+    m_started = true;
+    m_startTime = std::chrono::steady_clock::now();
+    // 延迟标记启动完成，给系统一些时间稳定
+    // 启动后3秒才标记为完成，期间拒绝处理大部分消息
+    std::thread([this]() {
+      std::this_thread::sleep_for(std::chrono::seconds(3));
+      m_startupComplete = true;
+      MVBA_LOG(INFO) << LOG_DESC("MVBAProcessor startup phase completed");
+    }).detach();
 
-  MVBA_LOG(INFO) << LOG_DESC("MVBAProcessor started");
+    MVBA_LOG(INFO) << LOG_DESC("MVBAProcessor started successfully")
+                   << LOG_KV("maxPendingMessages", m_maxPendingMessages);
+  }
+  catch (std::exception const& e) {
+    MVBA_LOG(ERROR) << LOG_DESC("MVBAProcessor start failed")
+                    << LOG_KV("error", boost::diagnostic_information(e));
+    m_running = false;
+    m_started = false;
+    throw;  // 重新抛出异常
+  }
+  catch (...) {
+    MVBA_LOG(ERROR) << LOG_DESC("MVBAProcessor start failed with unknown exception");
+    m_running = false;
+    m_started = false;
+    throw;
+  }
 }
 
 void MVBAProcessor::stop() {
+  // 使用锁保护停止过程，避免并发停止
+  std::lock_guard<std::mutex> stopLock(m_startMutex);
+  
   if (!m_started) {
     return;
   }
@@ -96,9 +184,46 @@ void MVBAProcessor::stop() {
     m_messageQueueCondition.notify_all();
   }
 
-  // 等待消息处理线程结束
+  // 等待消息处理线程结束，添加超时机制防止无限等待
   if (m_messageProcessThread.joinable()) {
-    m_messageProcessThread.join();
+    // 简化实现：直接尝试join，如果线程卡住，至少不会阻塞整个stop过程太久
+    // 在实际应用中，如果线程真的卡住，可以考虑使用detach
+    try {
+      // 使用超时机制：在另一个线程中等待join，主线程等待最多5秒
+      std::atomic<bool> joinCompleted{false};
+      std::thread joinThread([this, &joinCompleted]() {
+        if (m_messageProcessThread.joinable()) {
+          m_messageProcessThread.join();
+        }
+        joinCompleted = true;
+      });
+      
+      // 等待最多5秒
+      auto startTime = std::chrono::steady_clock::now();
+      while (!joinCompleted && 
+             (std::chrono::steady_clock::now() - startTime) < std::chrono::seconds(5)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+      
+      if (!joinCompleted) {
+        MVBA_LOG(WARNING) << LOG_DESC("MVBAProcessor stop: message thread join timeout, detaching");
+        joinThread.detach();
+        if (m_messageProcessThread.joinable()) {
+          m_messageProcessThread.detach();
+        }
+      } else {
+        if (joinThread.joinable()) {
+          joinThread.join();
+        }
+      }
+    }
+    catch (std::exception const& e) {
+      MVBA_LOG(WARNING) << LOG_DESC("MVBAProcessor stop: exception during thread join")
+                        << LOG_KV("error", boost::diagnostic_information(e));
+      if (m_messageProcessThread.joinable()) {
+        m_messageProcessThread.detach();
+      }
+    }
   }
 
   // 停止所有定时器
@@ -156,6 +281,25 @@ void MVBAProcessor::handleMVBAMessage(MVBAMessageInterface::Ptr _msg) {
 
   m_totalMessagesReceived.fetch_add(1);
 
+  // 启动阶段保护：启动后3秒内，只处理关键消息，丢弃其他消息
+  if (!m_startupComplete) {
+    auto elapsed = std::chrono::steady_clock::now() - m_startTime;
+    if (elapsed < std::chrono::seconds(3)) {
+      // 启动阶段只处理NotifyFinishedPacket（可能来自其他节点的完成通知）
+      // 其他消息在启动阶段丢弃，避免消息风暴
+      if (_msg->packetType() != MVBAPacketType::NotifyFinishedPacket) {
+        MVBA_LOG(DEBUG) << LOG_DESC("handleMVBAMessage: dropping message during startup")
+                        << LOG_KV("packetType", (int32_t)_msg->packetType())
+                        << LOG_KV("elapsedSeconds", 
+                                  std::chrono::duration_cast<std::chrono::seconds>(elapsed).count());
+        return;
+      }
+    } else {
+      // 超过3秒但标志未设置，手动设置
+      m_startupComplete = true;
+    }
+  }
+
   // 基础验证
   if (!validateMessage(_msg)) {
     m_totalInvalidMessages.fetch_add(1);
@@ -174,12 +318,37 @@ void MVBAProcessor::enqueueMessage(MVBAMessageInterface::Ptr _msg) {
   std::lock_guard<std::mutex> lock(m_messageQueueMutex);
 
   // 检查队列大小限制
-  if (m_messageQueue.size() >= m_maxPendingMessages) {
-    MVBA_LOG(WARNING)
-        << LOG_DESC("enqueueMessage: message queue full, dropping message")
-        << LOG_KV("queueSize", m_messageQueue.size())
-        << LOG_KV("maxSize", m_maxPendingMessages);
-    return;
+  auto queueSize = m_messageQueue.size();
+  if (queueSize >= m_maxPendingMessages) {
+    // 队列满时，根据消息类型决定是否丢弃
+    // 关键消息（NotifyFinishedPacket）优先保留
+    if (_msg->packetType() == MVBAPacketType::NotifyFinishedPacket) {
+      // 对于关键消息，尝试丢弃队列中最旧的非关键消息
+      std::queue<MVBAMessageInterface::Ptr> tempQueue;
+      bool foundNonCritical = false;
+      while (!m_messageQueue.empty()) {
+        auto msg = m_messageQueue.front();
+        m_messageQueue.pop();
+        if (!foundNonCritical && 
+            msg->packetType() != MVBAPacketType::NotifyFinishedPacket) {
+          foundNonCritical = true;
+          continue;  // 丢弃这个非关键消息
+        }
+        tempQueue.push(msg);
+      }
+      m_messageQueue = std::move(tempQueue);
+      MVBA_LOG(WARNING)
+          << LOG_DESC("enqueueMessage: queue full, dropped non-critical message to make room")
+          << LOG_KV("queueSize", m_messageQueue.size())
+          << LOG_KV("maxSize", m_maxPendingMessages);
+    } else {
+      MVBA_LOG(WARNING)
+          << LOG_DESC("enqueueMessage: message queue full, dropping message")
+          << LOG_KV("queueSize", queueSize)
+          << LOG_KV("maxSize", m_maxPendingMessages)
+          << LOG_KV("packetType", (int32_t)_msg->packetType());
+      return;
+    }
   }
 
   m_messageQueue.push(_msg);
@@ -192,11 +361,13 @@ void MVBAProcessor::processMessageQueue() {
   while (m_running) {
     MVBAMessageInterface::Ptr msg = nullptr;
 
-    // 从队列中取消息
+    // 从队列中取消息，使用超时等待避免无限阻塞
     {
       std::unique_lock<std::mutex> lock(m_messageQueueMutex);
-      m_messageQueueCondition.wait(
-          lock, [this]() { return !m_messageQueue.empty() || !m_running; });
+      // 使用超时等待，每100ms检查一次，避免无限等待
+      bool notified = m_messageQueueCondition.wait_for(
+          lock, std::chrono::milliseconds(100),
+          [this]() { return !m_messageQueue.empty() || !m_running; });
 
       if (!m_running) {
         break;
@@ -205,6 +376,14 @@ void MVBAProcessor::processMessageQueue() {
       if (!m_messageQueue.empty()) {
         msg = m_messageQueue.front();
         m_messageQueue.pop();
+      }
+      
+      // 如果队列仍然很大，记录警告
+      if (m_messageQueue.size() > m_maxPendingMessages * 0.8) {
+        MVBA_LOG(WARNING) << LOG_DESC("processMessageQueue: message queue approaching limit")
+                          << LOG_KV("queueSize", m_messageQueue.size())
+                          << LOG_KV("maxSize", m_maxPendingMessages)
+                          << LOG_KV("threshold", m_maxPendingMessages * 0.8);
       }
     }
 
