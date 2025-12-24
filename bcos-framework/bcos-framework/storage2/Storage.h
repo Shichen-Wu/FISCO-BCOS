@@ -87,21 +87,6 @@ inline constexpr struct Range
     }
 } range;
 
-namespace detail
-{
-auto toSingleView(auto&& item)
-{
-    if constexpr (std::is_lvalue_reference_v<decltype(item)>)
-    {
-        return ::ranges::views::single(std::addressof(item)) | ::ranges::views::indirect;
-    }
-    else
-    {
-        return ::ranges::views::single(std::forward<decltype(item)>(item));
-    }
-}
-}  // namespace detail
-
 inline constexpr struct ReadOne
 {
     auto operator()(auto& storage, auto key, auto&&... args) const
@@ -125,16 +110,7 @@ inline constexpr struct RemoveOne
 {
     auto operator()(auto& storage, auto key, auto&&... args) const -> task::Task<void>
     {
-        if constexpr (HasTag<RemoveOne, decltype(storage), decltype(key), decltype(args)...>)
-        {
-            co_await tag_invoke(
-                *this, storage, std::move(key), std::forward<decltype(args)>(args)...);
-        }
-        else
-        {
-            co_await removeSome(storage, detail::toSingleView(std::move(key)),
-                std::forward<decltype(args)>(args)...);
-        }
+        co_await tag_invoke(*this, storage, std::move(key), std::forward<decltype(args)>(args)...);
     }
 } removeOne;
 
@@ -163,6 +139,28 @@ inline constexpr struct Merge
         co_await tag_invoke(*this, toStorage, fromStorage, std::forward<decltype(args)>(args)...);
     }
 } merge;
+
+#if (defined(__GNUC__) && ((__GNUC__ * 100 + GNUC_MINOR) >= 1203)) || \
+    (defined(__clang__) && (__clang_major__ > 13))
+template <class Storage, class Key>
+concept ReadableStorage = requires(Storage& storage, Key key, std::array<Key, 1> keys) {
+    { readSome(storage, keys) } -> task::IsAwaitable;
+    { readOne(storage, key) } -> task::IsAwaitable;
+};
+template <class Storage, class Key, class Value>
+concept WritableStorage = requires(
+    Storage& storage, Key key, Value value, std::array<std::pair<Key, Value>, 1> keyValues) {
+    { writeSome(storage, keyValues) } -> task::IsAwaitable;
+    { writeOne(storage, key, value) } -> task::IsAwaitable;
+};
+#else
+template <class Storage, class Key>
+concept ReadableStorage = true;
+template <class Storage, class Key, class Value>
+concept WritableStorage = true;
+#endif
+template <class Storage, class Key, class Value>
+concept ReadWriteStorage = ReadableStorage<Storage, Key> && WritableStorage<Storage, Key, Value>;
 
 template <auto& Tag>
 using tag_t = std::decay_t<decltype(Tag)>;

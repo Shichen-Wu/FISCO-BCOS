@@ -1,7 +1,7 @@
 #pragma once
 
-#include <bcos-framework/protocol/Exceptions.h>
-#include <bcos-framework/storage/Common.h>
+#include "bcos-framework/protocol/Exceptions.h"
+#include "bcos-framework/storage/Common.h"
 #include <map>
 #include <memory>
 
@@ -19,7 +19,7 @@ public:
         if (cmp > (uint8_t)storage::Condition::Comparator::CONTAINS)
         {
             BOOST_THROW_EXCEPTION(
-                protocol::PrecompiledError(std::to_string(cmp) + " ConditionOP not exist!"));
+                protocol::PrecompiledError{} << errinfo_comment(std::to_string(cmp) + " ConditionOP not exist!"));
         }
         return static_cast<storage::Condition::Comparator>(cmp);
     }
@@ -109,7 +109,7 @@ public:
             {
                 PRECOMPILED_LOG(DEBUG)
                     << LOG_DESC("The field index is greater than the size of fields");
-                BOOST_THROW_EXCEPTION(bcos::protocol::PrecompiledError(
+                BOOST_THROW_EXCEPTION(bcos::protocol::PrecompiledError{} << errinfo_comment(
                     "The field index is greater than the size of fields"));
             }
             if (cond.first == 0)

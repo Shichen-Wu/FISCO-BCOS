@@ -21,6 +21,7 @@
 #include "PBFTEngine.h"
 #include "../cache/PBFTCacheFactory.h"
 #include "../cache/PBFTCacheProcessor.h"
+#include "bcos-framework/front/FrontServiceInterface.h"
 #include "bcos-framework/ledger/Ledger.h"
 #include "bcos-pbft/pbft/protocol/proto/PBFT.pb.h"
 #include "bcos-ledger/LedgerMethods.h"
@@ -279,57 +280,60 @@ void PBFTEngine::onProposalApplyFailed(int64_t _errorCode,
 }
 
 void PBFTEngine::onProposalApplySuccess(
-    PBFTProposalInterface::Ptr _proposal,
-    PBFTProposalInterface::Ptr _executedProposal) {
-  // commit the proposal when execute success
-  m_config->storage()->asyncCommitProposal(_proposal);
+    PBFTProposalInterface::Ptr _proposal, PBFTProposalInterface::Ptr _executedProposal)
+{
+    // commit the proposal when execute success
+    m_config->storage()->asyncCommitProposal(_proposal);
 
-  // broadcast checkpoint message
-  auto checkPointMsg = m_config->pbftMessageFactory()->populateFrom(
-      PacketType::CheckPoint, m_config->pbftMsgDefaultVersion(),
-      m_config->view(), utcTime(), m_config->nodeIndex(), _executedProposal,
-      m_config->cryptoSuite(), m_config->keyPair(), true);
+    // broadcast checkpoint message
+    auto checkPointMsg = m_config->pbftMessageFactory()->populateFrom(PacketType::CheckPoint,
+        m_config->pbftMsgDefaultVersion(), m_config->view(), utcTime(), m_config->nodeIndex(),
+        _executedProposal, m_config->cryptoSuite(), m_config->keyPair(), true);
 
-  auto encodedData = m_config->codec()->encode(checkPointMsg);
-  // only broadcast message to the consensus nodes
-  m_config->frontService()->asyncSendBroadcastMessage(
-      bcos::protocol::NodeType::CONSENSUS_NODE, ModuleID::PBFT,
-      bcos::ref(*encodedData));
-  auto startT = utcTime();
-  auto recordT = utcTime();
-  // Note: must lock here to ensure thread safe
-  RecursiveGuard l(m_mutex);
-  auto lockT = (utcTime() - startT);
-  // restart the timer when proposal execute finished to in case of timeout
-  if (m_config->timer()->running()) {
-    m_config->timer()->restart();
-  }
-  // restart checkPoint timer to advoid timeout
-  if (m_timer->running()) {
-    m_timer->restart();
-  }
-  m_cacheProcessor->addCheckPointMsg(checkPointMsg);
-  m_cacheProcessor->setCheckPointProposal(_executedProposal);
-  auto currentExpectedCheckPoint = m_config->expectedCheckPoint();
-  if (currentExpectedCheckPoint < _executedProposal->index()) {
-    PBFT_LOG(WARNING)
-        << LOG_DESC(
-               "onProposalApplySuccess: maybe the consensus state has been "
-               "changed, not reset the expectedCheckPoint")
-        << LOG_KV("expectedCheckPoint", currentExpectedCheckPoint)
-        << LOG_KV("index", checkPointMsg->index())
-        << LOG_KV("hash", checkPointMsg->hash().abridged());
-  } else {
-    m_config->setExpectedCheckPoint(_executedProposal->index() + 1);
-  }
-  m_cacheProcessor->checkAndCommitStableCheckPoint();
-  m_cacheProcessor->tryToApplyCommitQueue();
-  m_cacheProcessor->eraseExecutedProposal(_proposal->hash());
-  PBFT_LOG(INFO) << LOG_DESC("onProposalApplySuccess")
-                 << LOG_KV("index", checkPointMsg->index())
-                 << LOG_KV("hash", checkPointMsg->hash().abridged())
-                 << LOG_KV("lockT", lockT)
-                 << LOG_KV("timecost", (utcTime() - recordT));
+    auto encodedData = m_config->codec()->encode(checkPointMsg);
+    // only broadcast message to the consensus nodes
+    task::wait(
+        [](front::FrontServiceInterface::Ptr front, bytesPointer encodedData) -> task::Task<void> {
+            co_await front->broadcastMessage(bcos::protocol::NodeType::CONSENSUS_NODE,
+                ModuleID::PBFT, ::ranges::views::single(ref(*encodedData)));
+        }(m_config->frontService(), std::move(encodedData)));
+    auto startT = utcTime();
+    auto recordT = utcTime();
+    // Note: must lock here to ensure thread safe
+    RecursiveGuard l(m_mutex);
+    auto lockT = (utcTime() - startT);
+    // restart the timer when proposal execute finished to in case of timeout
+    if (m_config->timer()->running())
+    {
+        m_config->timer()->restart();
+    }
+    // restart checkPoint timer to advoid timeout
+    if (m_timer->running())
+    {
+        m_timer->restart();
+    }
+    m_cacheProcessor->addCheckPointMsg(checkPointMsg);
+    m_cacheProcessor->setCheckPointProposal(_executedProposal);
+    auto currentExpectedCheckPoint = m_config->expectedCheckPoint();
+    if (currentExpectedCheckPoint < _executedProposal->index())
+    {
+        PBFT_LOG(WARNING) << LOG_DESC(
+                                 "onProposalApplySuccess: maybe the consensus state has been "
+                                 "changed, not reset the expectedCheckPoint")
+                          << LOG_KV("expectedCheckPoint", currentExpectedCheckPoint)
+                          << LOG_KV("index", checkPointMsg->index())
+                          << LOG_KV("hash", checkPointMsg->hash().abridged());
+    }
+    else
+    {
+        m_config->setExpectedCheckPoint(_executedProposal->index() + 1);
+    }
+    m_cacheProcessor->checkAndCommitStableCheckPoint();
+    m_cacheProcessor->tryToApplyCommitQueue();
+    m_cacheProcessor->eraseExecutedProposal(_proposal->hash());
+    PBFT_LOG(INFO) << LOG_DESC("onProposalApplySuccess") << LOG_KV("index", checkPointMsg->index())
+                   << LOG_KV("hash", checkPointMsg->hash().abridged()) << LOG_KV("lockT", lockT)
+                   << LOG_KV("timecost", (utcTime() - recordT));
 }
 
 // called after proposal executed successfully
@@ -361,120 +365,106 @@ void PBFTEngine::asyncSubmitProposal(
   onRecvProposal(_containSysTxs, proposal, _proposalIndex, _proposalHash);
 }
 
-void PBFTEngine::onRecvProposal(bool _containSysTxs,
-                                const protocol::Block &proposal,
-                                BlockNumber _proposalIndex,
-                                HashType const &_proposalHash) {
-  if (!m_config->isConsensusNode()) {
-    return;
-  }
-  // expired proposal
-  auto consProposalIndex = m_config->committedProposal()->index() + 1;
-  if (_proposalIndex <= m_config->syncingHighestNumber()) {
-    PBFT_LOG(WARNING) << LOG_DESC(
-                             "asyncSubmitProposal failed for expired index")
-                      << LOG_KV("index", _proposalIndex)
-                      << LOG_KV("hash", _proposalHash.abridged())
-                      << m_config->printCurrentState()
-                      << LOG_KV("syncingHighestNumber",
-                                m_config->syncingHighestNumber());
-    m_config->notifyResetSealing(consProposalIndex);
-    m_config->validator()->asyncResetTxsFlag(proposal, false, true);
-    return;
-  }
-  if (_proposalIndex <= m_config->committedProposal()->index() ||
-      _proposalIndex < m_config->expectedCheckPoint() ||
-      _proposalIndex < m_config->lowWaterMark()) {
-    PBFT_LOG(WARNING) << LOG_DESC(
-                             "asyncSubmitProposal failed for invalid index")
-                      << LOG_KV("index", _proposalIndex)
-                      << LOG_KV("hash", _proposalHash.abridged())
-                      << m_config->printCurrentState()
-                      << LOG_KV("lowWaterMark", m_config->lowWaterMark());
-    return;
-  }
-  auto leaderIndex = m_config->leaderIndex(_proposalIndex);
-  if (leaderIndex != m_config->nodeIndex()) {
-    PBFT_LOG(WARNING)
-        << LOG_DESC(
-               "asyncSubmitProposal failed for the node-self is not the leader")
-        << LOG_KV("expectedLeader", leaderIndex)
-        << LOG_KV("index", _proposalIndex)
-        << LOG_KV("hash", _proposalHash.abridged())
-        << m_config->printCurrentState();
-    m_config->notifyResetSealing(consProposalIndex);
-    m_config->validator()->asyncResetTxsFlag(proposal, false, true);
-    return;
-  }
-  PBFT_LOG(INFO) << LOG_DESC("asyncSubmitProposal")
-                 << LOG_KV("index", _proposalIndex)
-                 << LOG_KV("hash", _proposalHash.abridged())
-                 << m_config->printCurrentState();
-  // generate the pre-prepare packet
-  auto pbftProposal = m_config->pbftMessageFactory()->createPBFTProposal();
-
-  bytes blockData;
-  proposal.encode(blockData);
-
-  pbftProposal->setData(blockData);
-  pbftProposal->setIndex(_proposalIndex);
-  pbftProposal->setHash(_proposalHash);
-  pbftProposal->setSealerId(m_config->nodeIndex());
-  pbftProposal->setSystemProposal(_containSysTxs);
-
-  auto pbftMessage = m_config->pbftMessageFactory()->populateFrom(
-      PacketType::PrePreparePacket, pbftProposal,
-      m_config->pbftMsgDefaultVersion(), m_config->view(), utcTime(),
-      m_config->nodeIndex());
-  PBFT_LOG(INFO) << LOG_DESC("++++++++++++++++ Generating seal on")
-                 << LOG_KV("index", pbftMessage->index())
-                 << LOG_KV("Idx", m_config->nodeIndex())
-                 << LOG_KV("hash", pbftMessage->hash().abridged())
-                 << LOG_KV("sysProposal", pbftProposal->systemProposal());
-
-  // NOTE: must ensure thread safe, should not write any filed while
-  // encoding broadcast the pre-prepare packet
-  auto encodeStart = utcTime();
-  auto encodedData = m_config->codec()->encode(pbftMessage);
-  auto encodeEnd = utcTime();
-
-  // only broadcast pbft message to the consensus nodes
-
-  // TODO: check and fix broadcastMessage get stucked
-
-  /*task::wait([](decltype(m_config) config, decltype(encodedData) encoded) ->
-  task::Task<void> {
-      co_await
-  config->frontService()->broadcastMessage(bcos::protocol::NodeType::CONSENSUS_NODE,
-          ModuleID::PBFT,
-  ::ranges::views::single(ref(std::as_const(*encoded))));
-  }(m_config, encodedData));*/
-  m_config->frontService()->asyncSendBroadcastMessage(
-      protocol::NodeType::CONSENSUS_NODE, ModuleID::PBFT,
-      bcos::ref(*encodedData));
-  PBFT_LOG(INFO) << LOG_DESC("broadcast pre-prepare packet")
-                 << LOG_KV("packetSize", encodedData->size())
-                 << LOG_KV("index", pbftMessage->index())
-                 << LOG_KV("encode(ms)", encodeEnd - encodeStart)
-                 << LOG_KV("asyncSend(ms)", utcTime() - encodeEnd);
-
-  // handle the pre-prepare packet
-  RecursiveGuard lock(m_mutex);
-  auto beginHandleT = utcSteadyTime();
-  auto ret = handlePrePrepareMsg(pbftMessage, false, false, false);
-  // only broadcast the prePrepareMsg when local handlePrePrepareMsg success
-  if (ret)
-    [[likely]] {
-      PBFT_LOG(INFO) << LOG_DESC("handlePrePrepareMsg success")
-                     << LOG_KV("index", pbftMessage->index())
-                     << LOG_KV("costT(ms)", utcSteadyTime() - beginHandleT);
+void PBFTEngine::onRecvProposal(bool _containSysTxs, const protocol::Block& proposal,
+    BlockNumber _proposalIndex, HashType const& _proposalHash)
+{
+    if (!m_config->isConsensusNode())
+    {
+        return;
     }
-  else {
-    PBFT_LOG(INFO) << LOG_DESC("handlePrePrepareMsg failed")
-                   << printPBFTProposal(pbftMessage)
-                   << LOG_KV("costT(ms)", utcSteadyTime() - beginHandleT);
-    resetSealedTxs(pbftMessage, proposal);
-  }
+    // expired proposal
+    auto consProposalIndex = m_config->committedProposal()->index() + 1;
+    if (_proposalIndex <= m_config->syncingHighestNumber())
+    {
+        PBFT_LOG(WARNING) << LOG_DESC("asyncSubmitProposal failed for expired index")
+                          << LOG_KV("index", _proposalIndex)
+                          << LOG_KV("hash", _proposalHash.abridged())
+                          << m_config->printCurrentState()
+                          << LOG_KV("syncingHighestNumber", m_config->syncingHighestNumber());
+        m_config->notifyResetSealing(consProposalIndex);
+        m_config->validator()->asyncResetTxsFlag(proposal, false, true);
+        return;
+    }
+    if (_proposalIndex <= m_config->committedProposal()->index() ||
+        _proposalIndex < m_config->expectedCheckPoint() ||
+        _proposalIndex < m_config->lowWaterMark())
+    {
+        PBFT_LOG(WARNING) << LOG_DESC("asyncSubmitProposal failed for invalid index")
+                          << LOG_KV("index", _proposalIndex)
+                          << LOG_KV("hash", _proposalHash.abridged())
+                          << m_config->printCurrentState()
+                          << LOG_KV("lowWaterMark", m_config->lowWaterMark());
+        return;
+    }
+    auto leaderIndex = m_config->leaderIndex(_proposalIndex);
+    if (leaderIndex != m_config->nodeIndex())
+    {
+        PBFT_LOG(WARNING) << LOG_DESC(
+                                 "asyncSubmitProposal failed for the node-self is not the leader")
+                          << LOG_KV("expectedLeader", leaderIndex)
+                          << LOG_KV("index", _proposalIndex)
+                          << LOG_KV("hash", _proposalHash.abridged())
+                          << m_config->printCurrentState();
+        m_config->notifyResetSealing(consProposalIndex);
+        m_config->validator()->asyncResetTxsFlag(proposal, false, true);
+        return;
+    }
+    PBFT_LOG(INFO) << LOG_DESC("asyncSubmitProposal") << LOG_KV("index", _proposalIndex)
+                   << LOG_KV("hash", _proposalHash.abridged()) << m_config->printCurrentState();
+    // generate the pre-prepare packet
+    auto pbftProposal = m_config->pbftMessageFactory()->createPBFTProposal();
+
+    bytes blockData;
+    proposal.encode(blockData);
+
+    pbftProposal->setData(blockData);
+    pbftProposal->setIndex(_proposalIndex);
+    pbftProposal->setHash(_proposalHash);
+    pbftProposal->setSealerId(m_config->nodeIndex());
+    pbftProposal->setSystemProposal(_containSysTxs);
+
+    auto pbftMessage =
+        m_config->pbftMessageFactory()->populateFrom(PacketType::PrePreparePacket, pbftProposal,
+            m_config->pbftMsgDefaultVersion(), m_config->view(), utcTime(), m_config->nodeIndex());
+    PBFT_LOG(INFO) << LOG_DESC("++++++++++++++++ Generating seal on")
+                   << LOG_KV("index", pbftMessage->index()) << LOG_KV("Idx", m_config->nodeIndex())
+                   << LOG_KV("hash", pbftMessage->hash().abridged())
+                   << LOG_KV("sysProposal", pbftProposal->systemProposal());
+
+    // NOTE: must ensure thread safe, should not write any filed while
+    // encoding broadcast the pre-prepare packet
+    auto encodeStart = utcTime();
+    auto encodedData = m_config->codec()->encode(pbftMessage);
+    auto encodeEnd = utcTime();
+
+    // only broadcast pbft message to the consensus nodes
+    PBFT_LOG(INFO) << LOG_DESC("broadcast pre-prepare packet")
+                   << LOG_KV("packetSize", encodedData->size())
+                   << LOG_KV("index", pbftMessage->index())
+                   << LOG_KV("encode(ms)", encodeEnd - encodeStart)
+                   << LOG_KV("asyncSend(ms)", utcTime() - encodeEnd);
+    task::wait([](auto front, decltype(encodedData) encoded) -> task::Task<void> {
+        co_await front->broadcastMessage(bcos::protocol::NodeType::CONSENSUS_NODE, ModuleID::PBFT,
+            ::ranges::views::single(ref(std::as_const(*encoded))));
+    }(m_config->frontService(), std::move(encodedData)));
+
+    // handle the pre-prepare packet
+    RecursiveGuard lock(m_mutex);
+    auto beginHandleT = utcSteadyTime();
+    auto ret = handlePrePrepareMsg(pbftMessage, false, false, false);
+    // only broadcast the prePrepareMsg when local handlePrePrepareMsg success
+    if (ret) [[likely]]
+    {
+        PBFT_LOG(INFO) << LOG_DESC("handlePrePrepareMsg success")
+                       << LOG_KV("index", pbftMessage->index())
+                       << LOG_KV("costT(ms)", utcSteadyTime() - beginHandleT);
+    }
+    else
+    {
+        PBFT_LOG(INFO) << LOG_DESC("handlePrePrepareMsg failed") << printPBFTProposal(pbftMessage)
+                       << LOG_KV("costT(ms)", utcSteadyTime() - beginHandleT);
+        resetSealedTxs(pbftMessage, proposal);
+    }
 }
 
 void PBFTEngine::resetSealedTxs(
@@ -1115,45 +1105,56 @@ bool PBFTEngine::checkProposalSignature(IndexType _generatedFrom,
       nodeInfo->nodeID, _proposal->hash(), _proposal->signature());
 }
 
-bool PBFTEngine::checkRotateTransactionValid(
-    PBFTMessageInterface::Ptr const &_proposal,
-    ConsensusNode const &_leaderInfo, bool needCheckSign) {
-  if (m_config->consensusType() == ConsensusType::PBFT_TYPE &&
-      m_config->rpbftConfigTools() == nullptr)
-    [[likely]] { return true; }
-
-  // Note: if the block contains rotatingTx when m_shouldRotateSealers is false
-  //       the rotatingTx will be reverted by the ordinary node when executing
-  if (!shouldRotateSealers(_proposal->index()))
-    [[unlikely]] { return true; }
-
-  auto block = m_config->blockFactory().createBlock(
-      _proposal->consensusProposal()->data());
-
-  PBFT_LOG(INFO) << LOG_DESC("checkRotateTransactionValid")
-                 << LOG_KV("reqIndex", _proposal->index())
-                 << LOG_KV("reqHash", _proposal->hash().abridged())
-                 << LOG_KV("leaderIdx", _proposal->generatedFrom())
-                 << LOG_KV("nodeIdx", m_config->nodeIndex())
-                 << LOG_KV("txSize", block->transactionsMetaDataSize())
-                 << LOG_KV("needCheckSign", needCheckSign);
-
-  auto rotatingTx = block->transactionMetaData(0);
-  if (rotatingTx->to() != bcos::precompiled::CONSENSUS_ADDRESS &&
-      rotatingTx->to() != bcos::precompiled::CONSENSUS_TABLE_NAME)
-    [[unlikely]] {
-      PBFT_LOG(WARNING)
-          << LOG_DESC("checkRotateTransactionValid failed for wrong tx")
-          << LOG_KV("reqIndex", _proposal->index())
-          << LOG_KV("reqHash", _proposal->hash().abridged())
-          << LOG_KV("fromIdx", _proposal->generatedFrom())
-          << LOG_KV("currentTo", rotatingTx->to());
-      return false;
+bool PBFTEngine::checkRotateTransactionValid(PBFTMessageInterface::Ptr const& _proposal,
+    ConsensusNode const& _leaderInfo, bool needCheckSign)
+{
+    if (m_config->consensusType() == ConsensusType::PBFT_TYPE &&
+        m_config->rpbftConfigTools() == nullptr) [[likely]]
+    {
+        return true;
     }
 
-  if (!needCheckSign) {
-    return true;
-  }
+    // Note: if the block contains rotatingTx when m_shouldRotateSealers is false
+    //       the rotatingTx will be reverted by the ordinary node when executing
+    if (!shouldRotateSealers(_proposal->index())) [[unlikely]]
+    {
+        return true;
+    }
+
+    auto block = m_config->blockFactory().createBlock(_proposal->consensusProposal()->data());
+
+    PBFT_LOG(INFO) << LOG_DESC("checkRotateTransactionValid")
+                   << LOG_KV("reqIndex", _proposal->index())
+                   << LOG_KV("reqHash", _proposal->hash().abridged())
+                   << LOG_KV("leaderIdx", _proposal->generatedFrom())
+                   << LOG_KV("nodeIdx", m_config->nodeIndex())
+                   << LOG_KV("txSize", block->transactionsMetaDataSize())
+                   << LOG_KV("needCheckSign", needCheckSign);
+
+    auto transactionMeatDatas = block->transactionMetaDatas();
+    auto rotatingTx = transactionMeatDatas[0];
+    if (rotatingTx->to() != bcos::precompiled::CONSENSUS_ADDRESS &&
+        rotatingTx->to() != bcos::precompiled::CONSENSUS_TABLE_NAME) [[unlikely]]
+    {
+        PBFT_LOG(WARNING) << LOG_DESC("checkRotateTransactionValid failed for wrong tx")
+                          << LOG_KV("reqIndex", _proposal->index())
+                          << LOG_KV("reqHash", _proposal->hash().abridged())
+                          << LOG_KV("fromIdx", _proposal->generatedFrom())
+                          << LOG_KV("currentTo", rotatingTx->to());
+        return false;
+    }
+
+    if (!needCheckSign)
+    {
+        return true;
+    }
+
+    // FIXME: should not use source
+    auto leaderAddress = right160(m_config->cryptoSuite()->hash(_leaderInfo.nodeID));
+    if (rotatingTx->source() == leaderAddress.hex())
+    {
+        return true;
+    }
 
   // FIXME: should not use source
   auto leaderAddress =
@@ -1239,27 +1240,68 @@ bool PBFTEngine::handlePrePrepareMsg(PBFTMessageInterface::Ptr _prePrepareMsg,
       if (result == CheckResult::INVALID) {
         m_config->notifySealer(_prePrepareMsg->index(), true);
         return false;
-      }
     }
-  }
-  auto block = m_config->blockFactory().createBlock(
-      _prePrepareMsg->consensusProposal()->data(), false, false);
-  // add the prePrepareReq to the cache
-  if (!_needVerifyProposal) {
-    // Note: must reset the txs to be sealed no matter verify success or failed
-    // because some nodes may verify failed for timeout, while other nodes may
-    // verify success
-    m_config->validator()->asyncResetTxsFlag(*block, true);
-    // add the pre-prepare packet into the cache
-    m_cacheProcessor->addPrePrepareCache(_prePrepareMsg);
-    m_config->timer()->restart();
-    // broadcast PrepareMsg the packet
-    broadcastPrepareMsg(_prePrepareMsg);
-    PBFT_LOG(INFO) << LOG_DESC(
-                          "handlePrePrepareMsg and broadcast prepare packet")
-                   << printPBFTMsgInfo(_prePrepareMsg)
-                   << m_config->printCurrentState();
-    m_cacheProcessor->checkAndPreCommit();
+    m_config->validator()->verifyProposal(leaderNodeInfo->nodeID,
+        _prePrepareMsg->consensusProposal()->index(), block,
+        [self, _prePrepareMsg, _generatedFromNewView, leaderNodeInfo, _needCheckSignature, block](
+            auto&& _error, bool _verifyResult) {
+            try
+            {
+                auto pbftEngine = self.lock();
+                if (!pbftEngine)
+                {
+                    return;
+                }
+                auto committedIndex = pbftEngine->m_config->committedProposal()->index();
+                if (committedIndex >= _prePrepareMsg->index())
+                {
+                    return;
+                }
+                // Note: must reset the txs to be sealed no matter verify success or
+                // failed because some nodes may verify failed for timeout,  while
+                // other nodes may verify success
+                pbftEngine->m_config->validator()->asyncResetTxsFlag(*block, true);
+
+                // verify exceptioned
+                if (_error != nullptr)
+                {
+                    PBFT_LOG(WARNING)
+                        << LOG_DESC("verify proposal exceptioned")
+                        << printPBFTMsgInfo(_prePrepareMsg) << LOG_KV("code", _error->errorCode())
+                        << LOG_KV("msg", _error->errorMessage());
+                    pbftEngine->m_config->notifySealer(_prePrepareMsg->index(), true);
+                    RecursiveGuard lock(pbftEngine->m_mutex);
+                    pbftEngine->m_cacheProcessor->addExceptionCache(_prePrepareMsg);
+                    return;
+                }
+                auto rotateResult = pbftEngine->checkRotateTransactionValid(
+                    _prePrepareMsg, *leaderNodeInfo, _needCheckSignature);
+                // verify failed
+                if (!_verifyResult || !rotateResult)
+                {
+                    PBFT_LOG(WARNING)
+                        << LOG_DESC("verify proposal failed") << printPBFTMsgInfo(_prePrepareMsg);
+                    pbftEngine->m_config->notifySealer(_prePrepareMsg->index(), true);
+                    RecursiveGuard lock(pbftEngine->m_mutex);
+                    pbftEngine->m_cacheProcessor->addExceptionCache(_prePrepareMsg);
+                    return;
+                }
+                // verify success
+                RecursiveGuard lock(pbftEngine->m_mutex);
+                auto ret = pbftEngine->handlePrePrepareMsg(
+                    _prePrepareMsg, false, _generatedFromNewView, false);
+                if (!ret)
+                {
+                    pbftEngine->m_cacheProcessor->addExceptionCache(_prePrepareMsg);
+                }
+            }
+            catch (std::exception const& _e)
+            {
+                PBFT_LOG(WARNING) << LOG_DESC("exception when calls onVerifyFinishedHandler")
+                                  << printPBFTMsgInfo(_prePrepareMsg)
+                                  << LOG_KV("message", boost::diagnostic_information(_e));
+            }
+        });
     return true;
   }
   // verify the proposal
@@ -1333,29 +1375,28 @@ bool PBFTEngine::handlePrePrepareMsg(PBFTMessageInterface::Ptr _prePrepareMsg,
   return true;
 }
 
-void PBFTEngine::broadcastPrepareMsg(
-    PBFTMessageInterface::Ptr const &_prePrepareMsg) {
-  auto prepareMsg = m_config->pbftMessageFactory()->populateFrom(
-      PacketType::PreparePacket, m_config->pbftMsgDefaultVersion(),
-      m_config->view(), utcTime(), m_config->nodeIndex(),
-      _prePrepareMsg->consensusProposal(), m_config->cryptoSuite(),
-      m_config->keyPair());
-  prepareMsg->setIndex(_prePrepareMsg->index());
-  // add the message to local cache
-  m_cacheProcessor->addPrepareCache(prepareMsg);
+void PBFTEngine::broadcastPrepareMsg(PBFTMessageInterface::Ptr const& _prePrepareMsg)
+{
+    auto prepareMsg = m_config->pbftMessageFactory()->populateFrom(PacketType::PreparePacket,
+        m_config->pbftMsgDefaultVersion(), m_config->view(), utcTime(), m_config->nodeIndex(),
+        _prePrepareMsg->consensusProposal(), m_config->cryptoSuite(), m_config->keyPair());
+    prepareMsg->setIndex(_prePrepareMsg->index());
+    // add the message to local cache
+    m_cacheProcessor->addPrepareCache(prepareMsg);
 
-  auto encodedData =
-      m_config->codec()->encode(prepareMsg, m_config->pbftMsgDefaultVersion());
+    auto encodedData = m_config->codec()->encode(prepareMsg, m_config->pbftMsgDefaultVersion());
 
-  PBFT_LOG(INFO) << LOG_DESC("broadcast prepare packet")
-                 << LOG_KV("packetSize", encodedData->size())
-                 << LOG_KV("index", _prePrepareMsg->index());
-  // only broadcast to the consensus nodes
-  m_config->frontService()->asyncSendBroadcastMessage(
-      bcos::protocol::NodeType::CONSENSUS_NODE, ModuleID::PBFT,
-      ref(*encodedData));
-  // try to precommit the message
-  m_cacheProcessor->checkAndPreCommit();
+    PBFT_LOG(INFO) << LOG_DESC("broadcast prepare packet")
+                   << LOG_KV("packetSize", encodedData->size())
+                   << LOG_KV("index", _prePrepareMsg->index());
+    // only broadcast to the consensus nodes
+    task::wait(
+        [](front::FrontServiceInterface::Ptr front, bytesPointer encodedData) -> task::Task<void> {
+            co_await front->broadcastMessage(bcos::protocol::NodeType::CONSENSUS_NODE,
+                ModuleID::PBFT, ::ranges::views::single(ref(*encodedData)));
+        }(m_config->frontService(), std::move(encodedData)));
+    // try to precommit the message
+    m_cacheProcessor->checkAndPreCommit();
 }
 
 CheckResult
@@ -1515,23 +1556,26 @@ void PBFTEngine::sendRecoverResponse(bcos::crypto::NodeIDPtr _dstNode) {
                   << m_config->printCurrentState();
 }
 
-void PBFTEngine::broadcastViewChangeReq() {
-  auto viewChangeReq = generateViewChange();
-  // encode and broadcast the viewchangeReq
-  auto encodedData = m_config->codec()->encode(viewChangeReq);
-  // only broadcast to the consensus nodes
-  m_config->frontService()->asyncSendBroadcastMessage(
-      bcos::protocol::NodeType::CONSENSUS_NODE, ModuleID::PBFT,
-      ref(*encodedData));
-  PBFT_LOG(INFO) << LOG_DESC("broadcastViewChangeReq")
-                 << printPBFTMsgInfo(viewChangeReq)
-                 << LOG_KV("packetSize", encodedData->size());
-  // collect the viewchangeReq
-  m_cacheProcessor->addViewChangeReq(viewChangeReq);
-  auto newViewMsg = m_cacheProcessor->checkAndTryIntoNewView();
-  if (newViewMsg) {
-    reHandlePrePrepareProposals(newViewMsg);
-  }
+void PBFTEngine::broadcastViewChangeReq()
+{
+    auto viewChangeReq = generateViewChange();
+    // encode and broadcast the viewchangeReq
+    auto encodedData = m_config->codec()->encode(viewChangeReq);
+    // only broadcast to the consensus nodes
+    PBFT_LOG(INFO) << LOG_DESC("broadcastViewChangeReq") << printPBFTMsgInfo(viewChangeReq)
+                   << LOG_KV("packetSize", encodedData->size());
+    task::wait([](FrontServiceInterface::Ptr front, bytesPointer encodedData) -> task::Task<void> {
+        co_await front->broadcastMessage(bcos::protocol::NodeType::CONSENSUS_NODE, ModuleID::PBFT,
+            ::ranges::views::single(ref(*encodedData)));
+    }(m_config->frontService(), std::move(encodedData)));
+
+    // collect the viewchangeReq
+    m_cacheProcessor->addViewChangeReq(viewChangeReq);
+    auto newViewMsg = m_cacheProcessor->checkAndTryIntoNewView();
+    if (newViewMsg)
+    {
+        reHandlePrePrepareProposals(newViewMsg);
+    }
 }
 
 bool PBFTEngine::isValidViewChangeMsg(

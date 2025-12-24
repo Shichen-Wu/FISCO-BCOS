@@ -18,7 +18,7 @@
  * @date 2021-02-24
  */
 
-#include <bcos-utilities/BoostLog.h>
+#include "bcos-utilities/BoostLog.h"
 #define NOMINMAX
 #if defined(WIN32) || defined(WIN64) || defined(_WIN32) || defined(_WIN32_)
 #define _WIN32_WINNT 0x0601
@@ -33,7 +33,7 @@
 #ifdef __APPLE__
 #include <pthread.h>
 #endif
-#include <regex>
+#include <chrono>
 
 namespace bcos
 {
@@ -92,27 +92,24 @@ s256 u2s(u256 _u)
     static const bigint c_end = bigint(1) << 256;
     /// get the +/- symbols
     if (boost::multiprecision::bit_test(_u, 255))
+    {
         return s256(-(c_end - _u));
-    else
-        return s256(_u);
+    }
+    return s256(_u);
 }
 u256 s2u(s256 _u)
 {
     static const bigint c_end = bigint(1) << 256;
     if (_u >= 0)
+    {
         return u256(_u);
-    else
-        return u256(c_end + _u);
+    }
+    return u256(c_end + _u);
 }
 
 bool isHexStrWithPrefix(std::string_view str)
 {
-    if (str.empty() || str.size() < 2)
-    {
-        return false;
-    }
-    std::regex pattern("^0x[0-9a-fA-F]+$");
-    return std::regex_match(str.begin(), str.end(), pattern);
+    return str.size() >= 2 && str[0] == '0' && (str[1] == 'x' || str[1] == 'X');
 }
 
 u256 hex2u(std::string_view _hexStr)
@@ -127,6 +124,7 @@ u256 hex2u(std::string_view _hexStr)
     }
     catch (...)
     {
+        BCOS_LOG(WARNING) << "Convert hex string to u256 failed, hexStr: " << _hexStr;
         return 0;
     }
 }
@@ -160,6 +158,26 @@ uint32_t calcAvgQPS(uint64_t _requestCount, uint32_t _intervalMS)
         return qps;
     }
     return 0;
+}
+bool isNumStr(std::string const& _stringData)
+{
+    if (_stringData.empty())
+    {
+        return false;
+    }
+    for (const auto& ch : _stringData)
+    {
+        if (isdigit(ch))
+        {
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+int32_t toMillisecond(int32_t _seconds)
+{
+    return _seconds * 1000;
 }
 }  // namespace bcos
 

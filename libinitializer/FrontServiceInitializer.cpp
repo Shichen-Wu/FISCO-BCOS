@@ -20,6 +20,7 @@
  */
 #include "FrontServiceInitializer.h"
 #include "bcos-framework/protocol/Protocol.h"
+#include "bcos-framework/txpool/TxPoolTypeDef.h"
 #include "bcos-task/Wait.h"
 #include "libinitializer/ProtocolInitializer.h"
 #include <bcos-framework/consensus/ConsensusInterface.h>
@@ -210,7 +211,7 @@ void FrontServiceInitializer::initMsgHandlers(bcos::consensus::ConsensusInterfac
                     try
                     {
                         [[maybe_unused]] auto submitResult =
-                            co_await txpool->submitTransaction(std::move(transaction));
+                            co_await txpool->submitTransaction(std::move(transaction), true);
                     }
                     catch (std::exception& e)
                     {
@@ -251,7 +252,7 @@ void FrontServiceInitializer::initMsgHandlers(bcos::consensus::ConsensusInterfac
                     co_await txpool->broadcastTransactionBufferByTree(
                         bcos::ref(buffer), false, nodeID);
                     [[maybe_unused]] auto submitResult =
-                        co_await txpool->submitTransaction(std::move(transaction));
+                        co_await txpool->submitTransaction(std::move(transaction), true);
                 }
                 catch (std::exception& e)
                 {

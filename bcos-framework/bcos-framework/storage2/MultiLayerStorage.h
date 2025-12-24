@@ -1,5 +1,5 @@
 #pragma once
-#include "bcos-framework/storage2/Storage.h"
+#include "Storage.h"
 #include "bcos-task/TBBWait.h"
 #include "bcos-task/Trait.h"
 #include "bcos-utilities/Exceptions.h"
@@ -14,7 +14,7 @@
 #include <type_traits>
 #include <variant>
 
-namespace bcos::scheduler_v1
+namespace bcos::storage2
 {
 
 DERIVE_BCOS_EXCEPTION(DuplicateMutableStorageError);
@@ -23,7 +23,6 @@ DERIVE_BCOS_EXCEPTION(NonExistsKeyIteratorError);
 DERIVE_BCOS_EXCEPTION(NotExistsMutableStorageError);
 DERIVE_BCOS_EXCEPTION(NotExistsImmutableStorageError);
 DERIVE_BCOS_EXCEPTION(UnexceptNotExistsValue);
-DERIVE_BCOS_EXCEPTION(UnsupportedMethod);
 
 template <class Value>
 std::optional<Value> getValue(auto& input)
@@ -56,9 +55,6 @@ task::Task<bool> fillMissingValues(
         }
     }
 
-    size_t count = 0;
-    size_t gotSize = 0;
-
     auto gotValues =
         co_await [&]() -> task::Task<std::vector<storage2::StorageValueType<ValueType>>> {
         if constexpr (task::IsAwaitable<decltype(storage.readSome(
@@ -72,8 +68,8 @@ task::Task<bool> fillMissingValues(
         }
     }();
 
-    // auto gotValues = storage.readSome(::ranges::views::keys(missingKeyValues));
-    gotSize = ::ranges::size(gotValues);
+    auto gotSize = ::ranges::size(gotValues);
+    size_t count = 0;
     for (auto&& [from, to] :
         ::ranges::views::zip(gotValues, ::ranges::views::values(missingKeyValues)))
     {
@@ -205,7 +201,8 @@ public:
         co_return co_await storage2::readSome(view.m_backendStorage.get(), std::move(keys));
     }
 
-    friend auto tag_invoke(storage2::tag_t<storage2::readOne> /*unused*/, View& view, auto key)
+    friend auto tag_invoke(
+        storage2::tag_t<storage2::readOne> /*unused*/, View& view, const auto& key)
         -> task::Task<task::AwaitableReturnType<
             std::invoke_result_t<storage2::ReadOne, MutableStorage&, decltype(key)>>>
     {
@@ -238,8 +235,8 @@ public:
         co_return co_await storage2::readOne(view.m_backendStorage.get(), key);
     }
 
-    friend auto tag_invoke(storage2::tag_t<storage2::readOne> /*unused*/, View& view, auto key,
-        storage2::DIRECT_TYPE /*unused*/)
+    friend auto tag_invoke(storage2::tag_t<storage2::readOne> /*unused*/, View& view,
+        const auto& key, storage2::DIRECT_TYPE /*unused*/)
         -> task::Task<task::AwaitableReturnType<
             std::invoke_result_t<storage2::ReadOne, MutableStorage&, decltype(key)>>>
     {
@@ -277,6 +274,13 @@ public:
         storage2::tag_t<storage2::merge> /*unused*/, View& toView, auto&... fromStorage)
     {
         co_await storage2::merge(mutableStorage(toView), fromStorage...);
+    }
+
+    friend task::Task<void> tag_invoke(
+        storage2::tag_t<storage2::removeOne> /*unused*/, View& view, auto key, auto&&... args)
+    {
+        co_await storage2::removeOne(
+            mutableStorage(view), std::move(key), std::forward<decltype(args)>(args)...);
     }
 
     friend task::Task<void> tag_invoke(storage2::tag_t<storage2::removeSome> /*unused*/, View& view,
@@ -450,34 +454,34 @@ public:
     MultiLayerStorage& operator=(MultiLayerStorage&&) noexcept = default;
     ~MultiLayerStorage() noexcept = default;
 
-    friend ViewType fork(MultiLayerStorage& storage)
+    ViewType fork()
     {
-        std::unique_lock lock(storage.m_listMutex);
+        std::unique_lock lock(m_listMutex);
         if constexpr (withCacheStorage)
         {
-            ViewType view(storage.m_backendStorage, storage.m_cacheStorage);
-            view.m_immutableStorages = storage.m_storages;
+            ViewType view(m_backendStorage, m_cacheStorage);
+            view.m_immutableStorages = m_storages;
             return view;
         }
         else
         {
-            ViewType view(storage.m_backendStorage);
-            view.m_immutableStorages = storage.m_storages;
+            ViewType view(m_backendStorage);
+            view.m_immutableStorages = m_storages;
             return view;
         }
     }
 
-    friend void pushView(MultiLayerStorage& storage, ViewType view)
+    void pushView(ViewType view)
     {
         if (!view.m_mutableStorage)
         {
             return;
         }
-        std::unique_lock lock(storage.m_listMutex);
-        storage.m_storages.push_front(std::move(view.m_mutableStorage));
+        std::unique_lock lock(m_listMutex);
+        m_storages.push_front(std::move(view.m_mutableStorage));
     }
 
-    task::Task<std::shared_ptr<MutableStorage>> mergeBackStorage(auto&... fromStorage)
+    task::Task<std::shared_ptr<MutableStorage>> mergeBackStorage(auto&... extraStorages)
     {
         std::unique_lock mergeLock(m_mergeMutex);
         std::unique_lock listLock(m_listMutex);
@@ -496,20 +500,20 @@ public:
                     ittapi::Report report(ittapi::ITT_DOMAINS::instance().STORAGE2,
                         ittapi::ITT_DOMAINS::instance().MERGE_BACKEND);
                     task::tbb::syncWait(
-                        storage2::merge(m_backendStorage.get(), backStorage, fromStorage...));
+                        storage2::merge(m_backendStorage.get(), backStorage, extraStorages...));
                 },
                 [&]() {
                     ittapi::Report report(ittapi::ITT_DOMAINS::instance().STORAGE2,
                         ittapi::ITT_DOMAINS::instance().MERGE_CACHE);
                     task::tbb::syncWait(
-                        storage2::merge(m_cacheStorage.get(), backStorage, fromStorage...));
+                        storage2::merge(m_cacheStorage.get(), backStorage, extraStorages...));
                 });
         }
         else
         {
             ittapi::Report report(ittapi::ITT_DOMAINS::instance().STORAGE2,
                 ittapi::ITT_DOMAINS::instance().MERGE_BACKEND);
-            co_await storage2::merge(m_backendStorage.get(), backStorage, fromStorage...);
+            co_await storage2::merge(m_backendStorage.get(), backStorage, extraStorages...);
         }
 
         listLock.lock();
@@ -521,4 +525,4 @@ public:
     BackendStorage& backendStorage() { return m_backendStorage; }
 };
 
-}  // namespace bcos::scheduler_v1
+}  // namespace bcos::storage2

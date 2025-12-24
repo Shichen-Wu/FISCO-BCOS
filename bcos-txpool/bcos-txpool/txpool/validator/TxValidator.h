@@ -25,7 +25,6 @@
 #include <bcos-txpool/txpool/validator/Web3NonceChecker.h>
 #include <bcos-utilities/DataConvertUtility.h>
 
-#include <utility>
 namespace bcos::txpool
 {
 class TxValidator : public TxValidatorInterface
@@ -62,7 +61,7 @@ public:
     }
 
 protected:
-    virtual inline bool isSystemTransaction(const bcos::protocol::Transaction& _tx)
+    virtual bool isSystemTransaction(const bcos::protocol::Transaction& _tx)
     {
         return precompiled::contains(bcos::precompiled::c_systemTxsAddress, _tx.to());
     }

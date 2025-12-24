@@ -22,6 +22,7 @@
 #include "VRFBasedSealer.h"
 #include "bcos-framework/ledger/Features.h"
 #include <bcos-framework/protocol/GlobalConfig.h>
+#include <boost/chrono/duration.hpp>
 #include <chrono>
 #include <range/v3/view/transform.hpp>
 #include <utility>
@@ -101,6 +102,12 @@ void Sealer::asyncNoteLatestBlockHash(crypto::HashType _hash)
     m_sealingManager->resetLatestHash(_hash);
 }
 
+void Sealer::asyncNoteLatestBlockTimestamp(int64_t _timestamp)
+{
+    SEAL_LOG(INFO) << LOG_DESC("asyncNoteLatestBlockTimestamp") << LOG_KV("timestamp", _timestamp);
+    m_sealingManager->resetLatestTimestamp(_timestamp);
+}
+
 void Sealer::executeWorker()
 {
     // try to fetch transactions
@@ -113,13 +120,13 @@ void Sealer::executeWorker()
                 std::chrono::steady_clock::now() - m_lastFetchTimepoint.load());
             duration > std::chrono::seconds(m_fetchTimeout))
         {
-            increseLastFetchTimepoint();
+            increaseLastFetchTimepoint();
             m_sealerConfig->txpool()->tryToSyncTxsFromPeers();
         }
     }
     else
     {
-        increseLastFetchTimepoint();
+        increaseLastFetchTimepoint();
     }
 
     // try to generateProposal
@@ -134,7 +141,7 @@ void Sealer::executeWorker()
     else
     {
         boost::unique_lock<boost::mutex> lock(x_signalled);
-        m_signalled.wait_for(lock, boost::chrono::milliseconds(1));
+        m_signalled.wait_for(lock, boost::chrono::milliseconds(100));
     }
 }
 
@@ -158,7 +165,8 @@ void Sealer::submitProposal(bool _containSysTxs, bcos::protocol::Block::Ptr _blo
         SEAL_LOG(INFO) << LOG_DESC("submitProposal return for the block has already been committed")
                        << LOG_KV("proposalIndex", _block->blockHeader()->number())
                        << LOG_KV("currentNumber", m_sealingManager->latestNumber());
-        m_sealingManager->notifyResetProposal(*_block);
+        m_sealingManager->notifyResetTxsFlag(
+            ::ranges::to<std::vector>(_block->transactionHashes()), false);
         return;
     }
     // supplement the header info: set sealerList and weightList
@@ -217,7 +225,7 @@ uint16_t Sealer::hookWhenSealBlock(bcos::protocol::Block::Ptr _block)
             ledger::Features::Flag::bugfix_rpbft_vrf_blocknumber_input));
 }
 
-std::chrono::steady_clock::time_point Sealer::increseLastFetchTimepoint()
+std::chrono::steady_clock::time_point Sealer::increaseLastFetchTimepoint()
 {
     auto now = std::chrono::steady_clock::now();
     auto current = m_lastFetchTimepoint.load();
@@ -229,4 +237,20 @@ std::chrono::steady_clock::time_point Sealer::increseLastFetchTimepoint()
 void bcos::sealer::Sealer::setSealingManager(SealingManager::Ptr _sealingManager)
 {
     m_sealingManager = std::move(_sealingManager);
+}
+void bcos::sealer::Sealer::setFetchTimeout(int fetchTimeout)
+{
+    m_fetchTimeout = fetchTimeout;
+}
+bcos::sealer::SealerConfig::Ptr bcos::sealer::Sealer::sealerConfig() const
+{
+    return m_sealerConfig;
+}
+bcos::sealer::SealingManager::Ptr bcos::sealer::Sealer::sealingManager() const
+{
+    return m_sealingManager;
+}
+void bcos::sealer::Sealer::noteGenerateProposal()
+{
+    m_signalled.notify_one();
 }

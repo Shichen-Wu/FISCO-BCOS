@@ -45,13 +45,15 @@
 #include "../precompiled/extension/AuthManagerPrecompiled.h"
 #include "../precompiled/extension/BalancePrecompiled.h"
 #include "../precompiled/extension/ContractAuthMgrPrecompiled.h"
+#include "../precompiled/extension/CpuHeavyPrecompiled.h"
 #include "../precompiled/extension/DagTransferPrecompiled.h"
 #include "../precompiled/extension/GroupSigPrecompiled.h"
 #include "../precompiled/extension/PaillierPrecompiled.h"
 #include "../precompiled/extension/RingSigPrecompiled.h"
-#include "../precompiled/extension/UserPrecompiled.h"
+#include "../precompiled/extension/SmallBankPrecompiled.h"
 #include "../precompiled/extension/ZkpPrecompiled.h"
 #include "../vm/Precompiled.h"
+#include "bcos-framework/ledger/EVMAccount.h"
 
 #include <array>
 #include <cstring>
@@ -60,39 +62,29 @@
 #include "../vm/gas_meter/GasInjector.h"
 #endif
 
-#include "../Common.h"
 #include "ExecuteOutputs.h"
-#include "bcos-codec/abi/ContractABIType.h"
 #include "bcos-executor/src/executive/BlockContext.h"
-#include "bcos-executor/src/precompiled/common/Common.h"
-#include "bcos-executor/src/precompiled/common/PrecompiledResult.h"
 #include "bcos-executor/src/precompiled/common/Utilities.h"
-#include "bcos-framework/dispatcher/SchedulerInterface.h"
+#include "bcos-framework/executor/ExecuteError.h"
 #include "bcos-framework/executor/ExecutionMessage.h"
 #include "bcos-framework/executor/PrecompiledTypeDef.h"
 #include "bcos-framework/ledger/LedgerTypeDef.h"
+#include "bcos-framework/protocol/LogEntry.h"
+#include "bcos-framework/protocol/Protocol.h"
 #include "bcos-framework/protocol/ProtocolTypeDef.h"
-#include "bcos-framework/protocol/TransactionReceipt.h"
 #include "bcos-framework/storage/StorageInterface.h"
 #include "bcos-framework/storage/Table.h"
 #include "bcos-table/src/KeyPageStorage.h"
-#include "bcos-table/src/StateStorage.h"
 #include "bcos-table/src/StateStorageFactory.h"
 #include "bcos-task/Wait.h"
-#include "bcos-tool/BfsFileFactory.h"
+#include "bcos-utilities/Error.h"
+#include "bcos-utilities/ThreadPool.h"
 #include "tbb/flow_graph.h"
-#include <bcos-framework/executor/ExecuteError.h>
-#include <bcos-framework/protocol/LogEntry.h>
-#include <bcos-framework/protocol/Protocol.h>
-#include <bcos-utilities/Error.h>
-#include <bcos-utilities/ThreadPool.h>
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
 #include <boost/algorithm/hex.hpp>
 #include <boost/exception/detail/exception_ptr.hpp>
 #include <boost/exception/diagnostic_information.hpp>
-#include <boost/format.hpp>
-#include <boost/format/format_fwd.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/thread/latch.hpp>
 #include <boost/throw_exception.hpp>
@@ -101,7 +93,6 @@
 #include <exception>
 #include <functional>
 #include <gsl/util>
-#include <iterator>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -426,7 +417,7 @@ std::shared_ptr<BlockContext> TransactionExecutor::createBlockContextForCall(
         blockNumber, blockHash, timestamp, blockVersion, m_isWasm, m_isAuthCheck);
     ledger::Features features;
     task::syncWait(features.readFromStorage(*storage, blockNumber + 1));
-    context->setFeatures(std::move(features));
+    context->setFeatures(features);
     ledger::SystemConfigs config;
     task::syncWait(readFromStorage(config, *storage, blockNumber + 1));
     context->setConfigs(std::move(config));
@@ -490,14 +481,13 @@ void TransactionExecutor::nextBlockHeader(int64_t schedulerTermId,
                 if (blockHeader->number() - storageBlockNumber != 1 &&
                     !isSysContractDeploy(blockHeader->number()))
                 {
-                    auto fmt = boost::format(
-                                   "[%s] Block number mismatch in storage! request: %d, current in "
-                                   "storage: %d, trigger switch") %
-                               m_name % blockHeader->number() % storageBlockNumber;
+                    auto fmt = fmt::format(
+                        "[{}] Block number mismatch in storage! request: {}, current in "
+                        "storage: {}, trigger switch",
+                        m_name, blockHeader->number(), storageBlockNumber);
                     EXECUTOR_NAME_LOG(ERROR) << fmt;
                     // to trigger switch operation
-                    callback(
-                        BCOS_ERROR_UNIQUE_PTR(ExecuteError::SCHEDULER_TERM_ID_ERROR, fmt.str()));
+                    callback(BCOS_ERROR_UNIQUE_PTR(ExecuteError::SCHEDULER_TERM_ID_ERROR, fmt));
                     return;
                 }
             }
@@ -509,14 +499,13 @@ void TransactionExecutor::nextBlockHeader(int64_t schedulerTermId,
                 if (blockHeader->number() - prev.number != 1)
                 {
                     // m_stateStorages.pop_back();
-                    auto fmt = boost::format(
-                                   "[%s] Block number mismatch! request: %d, current: %d. trigger "
-                                   "switch.") %
-                               m_name % blockHeader->number() % prev.number;
+                    auto fmt = fmt::format(
+                        "[{}] Block number mismatch! request: {}, current: {}. trigger "
+                        "switch.",
+                        m_name, blockHeader->number(), prev.number);
                     EXECUTOR_NAME_LOG(WARNING) << fmt;
                     m_stateStorages.clear();
-                    callback(
-                        BCOS_ERROR_UNIQUE_PTR(ExecuteError::SCHEDULER_TERM_ID_ERROR, fmt.str()));
+                    callback(BCOS_ERROR_UNIQUE_PTR(ExecuteError::SCHEDULER_TERM_ID_ERROR, fmt));
                     return;
                 }
 
@@ -1000,8 +989,7 @@ void TransactionExecutor::executeTransactionsInternal(std::string contractAddres
             }
             default:
             {
-                auto message =
-                    (boost::format("Unsupported message type: %d") % params->type()).str();
+                auto message = fmt::format("Unsupported message type: {}", (int)params->type());
                 EXECUTOR_NAME_LOG(ERROR)
                     << BLOCK_NUMBER(blockNumber) << "Execute error, " << message;
                 // callback(BCOS_ERROR_UNIQUE_PTR(ExecuteError::DAG_ERROR, message), {});
@@ -1180,9 +1168,9 @@ void TransactionExecutor::updateEoaNonce(std::unordered_map<std::string, u256> c
                               << LOG_KV("nonce", nonce);
             auto eoa = ledger::account::EVMAccount(*m_blockContext->storage(), sender,
                 m_blockContext->features().get(ledger::Features::Flag::feature_raw_address));
-            auto nonceInStorage = task::syncWait(ledger::account::nonce(eoa));
+            auto nonceInStorage = task::syncWait(eoa.nonce());
             auto nonceToUpdate = std::max(u256(nonceInStorage.value_or("0")), nonce) + 1;
-            task::syncWait(ledger::account::setNonce(eoa, nonceToUpdate.convert_to<std::string>()));
+            task::syncWait(eoa.setNonce(nonceToUpdate.convert_to<std::string>()));
         }
     }
 }
@@ -1262,7 +1250,7 @@ void TransactionExecutor::dagExecuteTransactions(
         }
         default:
         {
-            auto message = (boost::format("Unsupported message type: %d") % params->type()).str();
+            auto message = fmt::format("Unsupported message type: {}", (int)params->type());
             EXECUTOR_NAME_LOG(ERROR) << "DAG Execute error, " << message;
             // callback(BCOS_ERROR_UNIQUE_PTR(ExecuteError::DAG_ERROR, message), {});
             break;
@@ -2087,8 +2075,7 @@ void TransactionExecutor::getCode(
         stateStorage->asyncGetRow(bcos::ledger::SYS_CODE_BINARY, codeKey,
             [this, contractTableName, callback = std::move(callback),
                 getCodeFromContractTable = std::move(getCodeFromContractTable),
-                features = std::move(features)](
-                Error::UniquePtr error, std::optional<Entry> entry) {
+                features = features](Error::UniquePtr error, std::optional<Entry> entry) {
                 if (!m_isRunning)
                 {
                     callback(BCOS_ERROR_UNIQUE_PTR(

@@ -3,17 +3,17 @@
  *  @date 20180910
  */
 
+#include "bcos-gateway/libp2p/Service.h"
+#include "bcos-framework/Common.h"
+#include "bcos-framework/protocol/GlobalConfig.h"
+#include "bcos-gateway/libnetwork/Common.h"      // for SocketFace
+#include "bcos-gateway/libnetwork/SocketFace.h"  // for SocketFace
+#include "bcos-gateway/libp2p/Common.h"
+#include "bcos-gateway/libp2p/P2PInterface.h"  // for SessionCallbackFunc...
+#include "bcos-gateway/libp2p/P2PMessage.h"
+#include "bcos-gateway/libp2p/P2PSession.h"  // for P2PSession
 #include "bcos-utilities/BoostLog.h"
 #include "bcos-utilities/Common.h"
-#include <bcos-framework/protocol/CommonError.h>
-#include <bcos-gateway/libnetwork/ASIOInterface.h>  // for ASIOInterface
-#include <bcos-gateway/libnetwork/Common.h>         // for SocketFace
-#include <bcos-gateway/libnetwork/SocketFace.h>     // for SocketFace
-#include <bcos-gateway/libp2p/Common.h>
-#include <bcos-gateway/libp2p/P2PInterface.h>  // for SessionCallbackFunc...
-#include <bcos-gateway/libp2p/P2PMessage.h>
-#include <bcos-gateway/libp2p/P2PSession.h>  // for P2PSession
-#include <bcos-gateway/libp2p/Service.h>
 #include <boost/random.hpp>
 #include <boost/throw_exception.hpp>
 #include <shared_mutex>
@@ -41,12 +41,16 @@ Service::Service(P2PInfo const& _p2pInfo) : m_selfInfo(_p2pInfo), m_nodeID(m_sel
     // the version, when handshake finished the version field of P2PMessage
     // should be set
     registerHandlerByMsgType(GatewayMessageType::Handshake,
-        boost::bind(&Service::onReceiveProtocol, this, boost::placeholders::_1,
-            boost::placeholders::_2, boost::placeholders::_3));
+        [this](NetworkException exception, std::shared_ptr<P2PSession> session,
+            P2PMessage::Ptr message) {
+            onReceiveProtocol(std::move(exception), std::move(session), std::move(message));
+        });
 
     registerHandlerByMsgType(GatewayMessageType::Heartbeat,
-        boost::bind(&Service::onReceiveHeartbeat, this, boost::placeholders::_1,
-            boost::placeholders::_2, boost::placeholders::_3));
+        [this](NetworkException exception, std::shared_ptr<P2PSession> session,
+            P2PMessage::Ptr message) {
+            onReceiveHeartbeat(std::move(exception), std::move(session), std::move(message));
+        });
 }
 
 void Service::start()
@@ -61,7 +65,7 @@ void Service::start()
             auto service = self.lock();
             if (service)
             {
-                service->onConnect(e, p2pInfo, session);
+                service->onConnect(e, p2pInfo, std::move(session));
             }
         });
         m_host->start();
@@ -745,7 +749,6 @@ bcos::task::Task<Message::Ptr> bcos::gateway::Service::sendMessageByNodeID(
 {
     if (nodeID == id())
     {
-        // ignore myself
         co_return {};
     }
 
@@ -755,8 +758,12 @@ bcos::task::Task<Message::Ptr> bcos::gateway::Service::sendMessageByNodeID(
         BOOST_THROW_EXCEPTION(
             NetworkException(-1, "send message failed for no network established"));
     }
+    if (header.seq() == 0)
+    {
+        header.setSeq(m_messageFactory->newSeq());
+    }
 
-    co_return co_await session->fastSendP2PMessage(header, std::move(payloads), {});
+    co_return co_await session->fastSendP2PMessage(header, std::move(payloads), options);
 }
 bool bcos::gateway::Service::active()
 {

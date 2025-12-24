@@ -5,13 +5,12 @@
 
 #pragma once
 
-#include <bcos-framework/protocol/ProtocolInfo.h>
-#include <bcos-gateway/libnetwork/Common.h>
-#include <bcos-gateway/libnetwork/SessionFace.h>
-#include <bcos-gateway/libp2p/Common.h>
-#include <bcos-gateway/libp2p/P2PMessage.h>
-#include <bcos-utilities/DataConvertUtility.h>
+#include "bcos-framework/protocol/ProtocolInfo.h"
+#include "bcos-gateway/libnetwork/Common.h"
+#include "bcos-gateway/libnetwork/SessionFace.h"
+#include "bcos-gateway/libp2p/P2PMessage.h"
 #include <memory>
+#include <utility>
 
 
 namespace bcos::gateway
@@ -34,7 +33,10 @@ public:
     virtual void heartBeat();
 
     virtual SessionFace::Ptr session() { return m_session; }
-    virtual void setSession(std::shared_ptr<SessionFace> session) { m_session = session; }
+    virtual void setSession(std::shared_ptr<SessionFace> session)
+    {
+        m_session = std::move(session);
+    }
 
     virtual P2pID p2pID() { return m_p2pInfo->rawP2pID; }
     virtual std::string printP2pID() { return printShortP2pID(m_p2pInfo->rawP2pID); }

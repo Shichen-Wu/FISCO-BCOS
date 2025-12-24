@@ -2,7 +2,6 @@
 #include "bcos-crypto/bcos-crypto/ChecksumAddress.h"
 #include "bcos-framework/executor/ExecuteError.h"
 #include <bcos-protocol/TransactionStatus.h>
-#include <boost/format.hpp>
 
 
 using namespace bcos::scheduler;
@@ -353,7 +352,7 @@ void DmcExecutor::handleCreateMessage(
             {
                 // Note: no need to compatible with EIP-86, because dmc not compatible to eth
                 message->setTo(
-                    newEVMAddress(m_block->blockHeaderConst()->number(), contextID, newSeq));
+                    newEVMAddress(m_block->blockHeader()->number(), contextID, newSeq));
             }
         }
         break;

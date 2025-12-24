@@ -8,7 +8,6 @@
 #include <tbb/blocked_range.h>
 #include <tbb/parallel_for.h>
 #include <boost/endian.hpp>
-#include <boost/format.hpp>
 #include <boost/throw_exception.hpp>
 #include <algorithm>
 #include <iterator>
@@ -79,7 +78,7 @@ public:
         return true;
     }
 
-    void generateMerkleProof(HashRange auto const& originHashes,
+    void generateMerkleProof(HashRange auto originHashes,
         bcos::concepts::bytebuffer::Hash auto const& hash, ProofRange auto& out) const
     {
         // Find the hash in originHashes first
@@ -90,12 +89,12 @@ public:
         }
 
         std::vector<HashType> merkle;
-        generateMerkle(originHashes, merkle);
-        generateMerkleProof(
-            originHashes, merkle, ::ranges::distance(::ranges::begin(originHashes), it), out);
+        generateMerkle(::ranges::views::all(originHashes), merkle);
+        generateMerkleProof(::ranges::views::all(originHashes), merkle,
+            ::ranges::distance(::ranges::begin(originHashes), it), out);
     }
 
-    void generateMerkleProof(HashRange auto const& originHashes, MerkleRange auto const& merkle,
+    void generateMerkleProof(HashRange auto originHashes, MerkleRange auto const& merkle,
         bcos::concepts::bytebuffer::Hash auto const& hash, ProofRange auto& out) const
     {
         // Find the hash in originHashes first
@@ -104,11 +103,11 @@ public:
         {
             BOOST_THROW_EXCEPTION(std::invalid_argument{"Not found hash!"});
         }
-        generateMerkleProof(
-            originHashes, merkle, ::ranges::distance(::ranges::begin(originHashes), it), out);
+        generateMerkleProof(::ranges::views::all(originHashes), merkle,
+            ::ranges::distance(::ranges::begin(originHashes), it), out);
     }
 
-    void generateMerkleProof(HashRange auto const& originHashes, MerkleRange auto const& merkle,
+    void generateMerkleProof(HashRange auto originHashes, MerkleRange auto const& merkle,
         std::integral auto index, ProofRange auto& out) const
     {
         if ((size_t)index >= (size_t)::ranges::size(originHashes)) [[unlikely]]
@@ -162,7 +161,7 @@ public:
         }
     }
 
-    void generateMerkle(HashRange auto&& originHashes, MerkleRange auto& out) const
+    void generateMerkle(HashRange auto originHashes, MerkleRange auto& out) const
     {
         if (::ranges::empty(originHashes))
         {
@@ -186,7 +185,7 @@ public:
         auto nextNodes = getNextLevelSize((unsigned)::ranges::size(originHashes));
         setNumberToHash(nextNodes, *(it++));
         auto outputRange = ::ranges::subrange<decltype(it)>(it, it + nextNodes);
-        calculateLevelHashes(originHashes, outputRange);
+        calculateLevelHashes(::ranges::views::all(originHashes), outputRange);
 
         while (nextNodes > 1)  // Calculate next level from out, ignore only root
         {
@@ -238,7 +237,7 @@ private:
         return (inputSize + (width - 1)) / width;
     }
 
-    void calculateLevelHashes(HashRange auto const& input, HashRange auto& output) const
+    void calculateLevelHashes(HashRange auto input, HashRange auto& output) const
     {
         assert(::ranges::size(input) > 0);
 

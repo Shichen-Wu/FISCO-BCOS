@@ -1,7 +1,7 @@
 #include "CastPrecompiled.h"
 #include "bcos-executor/src/precompiled/common/PrecompiledResult.h"
 #include "bcos-executor/src/precompiled/common/Utilities.h"
-#include <bcos-framework/protocol/Exceptions.h>
+#include "bcos-framework/protocol/Exceptions.h"
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/archive/binary_iarchive.hpp>
@@ -146,7 +146,7 @@ std::shared_ptr<PrecompiledExecResult> CastPrecompiled::call(
     {
         PRECOMPILED_LOG(INFO) << LOG_BADGE("CastPrecompiled")
                               << LOG_DESC("call undefined function!");
-        BOOST_THROW_EXCEPTION(PrecompiledError("CastPrecompiled call undefined function!"));
+        BOOST_THROW_EXCEPTION(PrecompiledError{} << errinfo_comment("CastPrecompiled call undefined function!"));
     }
     return _callParameters;
 }

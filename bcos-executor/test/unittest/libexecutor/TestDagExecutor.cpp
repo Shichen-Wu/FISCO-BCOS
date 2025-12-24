@@ -40,13 +40,13 @@
 #include "bcos-table/src/StateStorageFactory.h"
 #include "executor/TransactionExecutor.h"
 #include "executor/TransactionExecutorFactory.h"
-#include <bcos-crypto/hash/Keccak256.h>
-#include <bcos-crypto/hash/SM3.h>
-#include <bcos-crypto/interfaces/crypto/CommonType.h>
-#include <bcos-crypto/interfaces/crypto/CryptoSuite.h>
-#include <bcos-crypto/interfaces/crypto/Hash.h>
-#include <bcos-crypto/signature/secp256k1/Secp256k1Crypto.h>
-#include <bcos-framework/executor/NativeExecutionMessage.h>
+#include "bcos-crypto/hash/Keccak256.h"
+#include "bcos-crypto/hash/SM3.h"
+#include "bcos-crypto/interfaces/crypto/CommonType.h"
+#include "bcos-crypto/interfaces/crypto/CryptoSuite.h"
+#include "bcos-crypto/interfaces/crypto/Hash.h"
+#include "bcos-crypto/signature/secp256k1/Secp256k1Crypto.h"
+#include "bcos-framework/executor/NativeExecutionMessage.h"
 #include <unistd.h>
 #include <boost/algorithm/hex.hpp>
 #include <boost/algorithm/string.hpp>
@@ -194,9 +194,9 @@ struct DagExecutorFixture
 };
 BOOST_FIXTURE_TEST_SUITE(TestDagExecutor, DagExecutorFixture)
 
-#ifdef WITH_WASM
 BOOST_AUTO_TEST_CASE(callWasmConcurrentlyTransfer)
 {
+#ifdef WITH_WASM
     auto executionResultFactory = std::make_shared<NativeExecutionMessageFactory>();
     auto stateStorageFactory = std::make_shared<storage::StateStorageFactory>(0);
     auto executor = bcos::executor::TransactionExecutorFactory::build(ledger, txpool, nullptr,
@@ -450,10 +450,12 @@ BOOST_AUTO_TEST_CASE(callWasmConcurrentlyTransfer)
             BOOST_CHECK_EQUAL(dept, std::get<1>(expected[i]));
         }
     }
+#endif
 }  // namespace test
 
 BOOST_AUTO_TEST_CASE(callWasmConcurrentlyHelloWorld)
 {
+#ifdef WITH_WASM
     auto executionResultFactory = std::make_shared<NativeExecutionMessageFactory>();
     auto stateStorageFactory = std::make_shared<storage::StateStorageFactory>(8192);
     auto executor = bcos::executor::TransactionExecutorFactory::build(ledger, txpool, nullptr,
@@ -680,8 +682,8 @@ BOOST_AUTO_TEST_CASE(callWasmConcurrentlyHelloWorld)
             codec->decode(result->data(), name);
             BOOST_CHECK_EQUAL(name, "alice");
         });
-}
 #endif
+}
 
 BOOST_AUTO_TEST_CASE(callEvmConcurrentlyTransfer)
 {

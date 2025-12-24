@@ -10,13 +10,16 @@ namespace bcos::executor_v1
 
 template <class Storage>
 concept HasReadOneDirect = requires(Storage& storage) {
-    requires !std::is_void_v<task::AwaitableReturnType<decltype(storage2::readOne(
-        storage, std::declval<typename Storage::Key>(), storage2::DIRECT))>>;
+    {
+        storage2::readOne(storage, std::declval<typename Storage::Key>(), storage2::DIRECT)
+    } -> task::IsAwaitable;
 };
 template <class Storage>
 concept HasReadSomeDirect = requires(Storage& storage) {
-    requires ::ranges::range<task::AwaitableReturnType<decltype(storage2::readSome(
-        storage, std::declval<std::vector<typename Storage::Key>>(), storage2::DIRECT))>>;
+    {
+        storage2::readSome(
+            storage, std::declval<std::vector<typename Storage::Key>>(), storage2::DIRECT)
+    } -> task::IsAwaitable;
 };
 
 template <class Storage>
@@ -130,6 +133,16 @@ private:
         record.oldValue =
             co_await storage2::readOne(storage.m_storage.get(), key, storage2::DIRECT);
         co_await storage2::writeOne(storage.m_storage.get(), std::move(key), std::move(value));
+    }
+
+    friend auto tag_invoke(storage2::tag_t<storage2::removeOne> /*unused*/, Rollbackable& storage,
+        auto key, auto&&... args)
+        -> task::Task<task::AwaitableReturnType<std::invoke_result_t<storage2::RemoveOne,
+            std::add_lvalue_reference_t<Storage>, decltype(key), decltype(args)...>>>
+    {
+        co_await storage.storeOldValues(::ranges::views::single(key), false);
+        co_return co_await storage2::removeOne(
+            storage.m_storage.get(), std::move(key), std::forward<decltype(args)>(args)...);
     }
 
     friend auto tag_invoke(storage2::tag_t<storage2::removeSome> /*unused*/, Rollbackable& storage,

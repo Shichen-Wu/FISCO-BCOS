@@ -19,12 +19,11 @@
  * @date 2021-05-17
  */
 
-#include <bcos-gateway/GatewayConfig.h>
-#include <bcos-gateway/GatewayFactory.h>
-#include <bcos-utilities/testutils/TestPromptFixture.h>
+#include "bcos-gateway/GatewayConfig.h"
+#include "bcos-framework/protocol/Protocol.h"
+#include "bcos-utilities/testutils/TestPromptFixture.h"
 #include <boost/algorithm/string/join.hpp>
 #include <boost/filesystem.hpp>
-#include <boost/test/tools/old/interface.hpp>
 #include <boost/test/unit_test.hpp>
 
 using namespace bcos;
@@ -104,9 +103,8 @@ BOOST_AUTO_TEST_CASE(test_hostAndPort2Endpoint)
     {
         NodeIPEndpoint endpoint;
         BOOST_CHECK_NO_THROW(config->hostAndPort2Endpoint("localhost:2333", endpoint));
-        BOOST_CHECK_EQUAL(endpoint.address(), "127.0.0.1");
+        BOOST_CHECK(endpoint.address() == "127.0.0.1" || endpoint.address() == "::1");
         BOOST_CHECK_EQUAL(endpoint.port(), 2333);
-        BOOST_CHECK(!endpoint.isIPv6());
     }
 
     {

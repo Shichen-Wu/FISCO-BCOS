@@ -21,10 +21,10 @@
 #include "WorkingSealerManagerImpl.h"
 #include "bcos-framework/consensus/ConsensusNode.h"
 #include "bcos-framework/ledger/Features.h"
-#include "bcos-framework/sealer/VrfCurveType.h"
 #include "bcos-framework/protocol/ProtocolTypeDef.h"
-#include "bcos-framework/storage/LegacyStorageMethods.h"
-#include <bcos-framework/ledger/LedgerTypeDef.h>
+#include "bcos-framework/sealer/VrfCurveType.h"
+#include "fmt/ranges.h"
+#include "bcos-framework/ledger/LedgerTypeDef.h"
 #include <fmt/format.h>
 #include <boost/endian/conversion.hpp>
 #include <algorithm>
@@ -200,7 +200,7 @@ void WorkingSealerManagerImpl::checkVRFInfos(HashType const& parentHash, std::st
                 << LOG_DESC("Permission denied, must be among the working sealer list!")
                 << LOG_KV("origin", origin);
             BOOST_THROW_EXCEPTION(
-                bcos::protocol::PrecompiledError("ConsensusPrecompiled call undefined function!"));
+                bcos::protocol::PrecompiledError{} << errinfo_comment("ConsensusPrecompiled call undefined function!"));
         }
     }
     else
@@ -214,7 +214,7 @@ void WorkingSealerManagerImpl::checkVRFInfos(HashType const& parentHash, std::st
                 << LOG_DESC("Permission denied, must be among the candidate sealer list!")
                 << LOG_KV("origin", origin);
             BOOST_THROW_EXCEPTION(
-                bcos::protocol::PrecompiledError("ConsensusPrecompiled call undefined function!"));
+                bcos::protocol::PrecompiledError{} << errinfo_comment("ConsensusPrecompiled call undefined function!"));
         }
     }
     if ((blockNumberInput &&
@@ -228,14 +228,14 @@ void WorkingSealerManagerImpl::checkVRFInfos(HashType const& parentHash, std::st
             << LOG_KV("vrfCurvType", +static_cast<uint8_t>(m_vrfInfo->vrfCurveType()))
             << LOG_KV("parentHash", parentHash.abridged()) << LOG_KV("blockNumber", blockNumber)
             << LOG_KV("vrfInput", toHex(m_vrfInfo->vrfInput())) << LOG_KV("origin", origin);
-        BOOST_THROW_EXCEPTION(PrecompiledError("Invalid VRFInput, must be the parentHash!"));
+        BOOST_THROW_EXCEPTION(PrecompiledError{} << errinfo_comment("Invalid VRFInput, must be the parentHash!"));
     }
     // check vrf public key: must be valid
     if (!m_vrfInfo->isValidVRFPublicKey())
     {
         PRECOMPILED_LOG(WARNING) << LOG_DESC("checkVRFInfos: Invalid VRF public key")
                                  << LOG_KV("publicKey", toHex(m_vrfInfo->vrfPublicKey()));
-        BOOST_THROW_EXCEPTION(PrecompiledError("Invalid VRF Public Key!"));
+        BOOST_THROW_EXCEPTION(PrecompiledError{} << errinfo_comment("Invalid VRF Public Key!"));
     }
     // check vrf public key from sealer leader
     if (m_vrfInfo->vrfCurveType() == sealer::VrfCurveType::SECKP256K1)
@@ -246,7 +246,7 @@ void WorkingSealerManagerImpl::checkVRFInfos(HashType const& parentHash, std::st
         {
             PRECOMPILED_LOG(WARNING) << LOG_DESC("checkVRFInfos: Invalid leader VRF public key")
                                      << LOG_KV("vrf publicKey", vrfPublicKeyHex);
-            BOOST_THROW_EXCEPTION(PrecompiledError("VRF public key permission check failed!"));
+            BOOST_THROW_EXCEPTION(PrecompiledError{} << errinfo_comment("VRF public key permission check failed!"));
         }
     }
     // verify vrf proof
@@ -254,7 +254,7 @@ void WorkingSealerManagerImpl::checkVRFInfos(HashType const& parentHash, std::st
     {
         PRECOMPILED_LOG(WARNING) << LOG_DESC("checkVRFInfos: VRF proof verify failed")
                                  << LOG_KV("origin", origin);
-        BOOST_THROW_EXCEPTION(PrecompiledError("Verify VRF proof failed!"));
+        BOOST_THROW_EXCEPTION(PrecompiledError{} << errinfo_comment("Verify VRF proof failed!"));
     }
     PRECOMPILED_LOG(INFO) << LOG_DESC("checkVRFInfos: VRF proof verify succ")
                           << LOG_KV("origin", origin);

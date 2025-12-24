@@ -19,18 +19,15 @@
  */
 #pragma once
 #include "GatewayStatus.h"
+#include "bcos-crypto/interfaces/crypto/KeyFactory.h"
+#include "bcos-framework/gateway/GroupNodeInfo.h"
+#include "bcos-framework/protocol/ProtocolInfo.h"
+#include "bcos-gateway/libp2p/P2PInterface.h"
+#include "bcos-gateway/protocol/GatewayNodeStatus.h"
 #include "bcos-task/Task.h"
-#include <bcos-crypto/interfaces/crypto/KeyFactory.h>
-#include <bcos-crypto/interfaces/crypto/KeyInterface.h>
-#include <bcos-framework/gateway/GroupNodeInfo.h>
-#include <bcos-framework/protocol/ProtocolInfo.h>
-#include <bcos-gateway/Common.h>
-#include <bcos-gateway/libp2p/P2PInterface.h>
-#include <bcos-gateway/protocol/GatewayNodeStatus.h>
 #include <oneapi/tbb/concurrent_unordered_map.h>
 #include <memory>
 #include <utility>
-
 
 namespace bcos::gateway
 {
@@ -61,7 +58,7 @@ public:
         uint16_t _type, std::string const& _group, uint16_t _moduleID, P2PMessage::Ptr _msg);
 
     task::Task<void> broadcastMessage(uint16_t type, std::string_view group, uint16_t moduleID,
-        P2PMessage& message, ::ranges::any_view<bytesConstRef> payloads);
+        const P2PMessage& message, ::ranges::any_view<bytesConstRef> payloads);
 
     std::set<P2pID> getAllPeers() const;
     GatewayStatus::Ptr gatewayInfo(std::string const& _uuid);

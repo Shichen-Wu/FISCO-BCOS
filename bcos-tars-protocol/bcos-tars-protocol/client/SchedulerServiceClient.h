@@ -29,22 +29,18 @@ namespace bcostars
 class SchedulerServiceClient : public bcos::scheduler::SchedulerInterface
 {
 public:
-    SchedulerServiceClient(SchedulerServicePrx _prx, bcos::crypto::CryptoSuite::Ptr _cryptoSuite)
-      : m_prx(_prx), m_cryptoSuite(_cryptoSuite)
-    {}
-    ~SchedulerServiceClient() override {}
+    SchedulerServiceClient(SchedulerServicePrx _prx, bcos::crypto::CryptoSuite::Ptr _cryptoSuite);
+    ~SchedulerServiceClient() override;
 
     void call(bcos::protocol::Transaction::Ptr tx,
-        std::function<void(bcos::Error::Ptr&&, bcos::protocol::TransactionReceipt::Ptr&&)>)
-        override;
+        std::function<void(bcos::Error::Ptr, bcos::protocol::TransactionReceipt::Ptr)>) override;
 
     void executeBlock(bcos::protocol::Block::Ptr _block, bool _verify,
-        std::function<void(bcos::Error::Ptr&&, bcos::protocol::BlockHeader::Ptr&&, bool)> _callback)
+        std::function<void(bcos::Error::Ptr, bcos::protocol::BlockHeader::Ptr, bool)> _callback)
         override;
 
     void commitBlock(bcos::protocol::BlockHeader::Ptr _blockHeader,
-        std::function<void(bcos::Error::Ptr&&, bcos::ledger::LedgerConfig::Ptr&&)> _callback)
-        override;
+        std::function<void(bcos::Error::Ptr, bcos::ledger::LedgerConfig::Ptr)> _callback) override;
 
     void getCode(std::string_view contract,
         std::function<void(bcos::Error::Ptr, bcos::bytes)> callback) override;
@@ -53,18 +49,11 @@ public:
         std::function<void(bcos::Error::Ptr, std::string)> callback) override;
 
     void preExecuteBlock(bcos::protocol::Block::Ptr block, bool verify,
-        std::function<void(bcos::Error::Ptr&&)> callback) override;
+        std::function<void(bcos::Error::Ptr)> callback) override;
 
-    void status(
-        std::function<void(bcos::Error::Ptr&&, bcos::protocol::Session::ConstPtr&&)>) override
-    {
-        BCOS_LOG(ERROR) << LOG_DESC("unimplemented method status");
-    }
+    void status(std::function<void(bcos::Error::Ptr, bcos::protocol::Session::ConstPtr)>) override;
 
-    void reset(std::function<void(bcos::Error::Ptr&&)>) override
-    {
-        BCOS_LOG(ERROR) << LOG_DESC("unimplemented method reset");
-    }
+    void reset(std::function<void(bcos::Error::Ptr)>) override;
 
 private:
     SchedulerServicePrx m_prx;

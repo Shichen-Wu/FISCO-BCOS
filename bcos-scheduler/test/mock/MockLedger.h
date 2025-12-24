@@ -16,7 +16,7 @@ public:
         std::function<void(std::string, Error::Ptr&&)> callback, bool writeTxsAndReceipts,
         std::optional<bcos::ledger::Features>) override
     {
-        BOOST_CHECK_EQUAL(block->blockHeaderConst()->number(), 100);
+        BOOST_CHECK_EQUAL(block->blockHeader()->number(), 100);
         callback("", nullptr);
     }
     void asyncPreStoreBlockTxs(bcos::protocol::ConstTransactionsPtr,
@@ -63,7 +63,7 @@ public:
 
     void asyncGetTransactionReceiptByHash(crypto::HashType const& _txHash, bool _withProof,
         std::function<void(
-            Error::Ptr, protocol::TransactionReceipt::ConstPtr, bcos::ledger::MerkleProofPtr)>
+            Error::Ptr, protocol::TransactionReceipt::Ptr, bcos::ledger::MerkleProofPtr)>
             _onGetTx) override
     {}
 

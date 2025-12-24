@@ -1,13 +1,8 @@
-#include <bcos-framework/Common.h>
-#include <bcos-framework/protocol/CommonError.h>
-#include <bcos-framework/protocol/ProtocolTypeDef.h>
-#include <bcos-rpc/filter/FilterSystem.h>
-#include <bcos-rpc/jsonrpc/Common.h>
-#include <bcos-rpc/web3jsonrpc/utils/Common.h>
-
+#include "bcos-rpc/filter/FilterSystem.h"
+#include "bcos-rpc/jsonrpc/Common.h"
 #include <utility>
 
-#define CPU_CORES std::thread::hardware_concurrency()
+#define CPU_CORES (std::thread::hardware_concurrency() + 1)
 
 using namespace bcos;
 using namespace bcos::rpc;
@@ -15,7 +10,7 @@ using namespace bcos::rpc::filter;
 
 FilterSystem::FilterSystem(GroupManager::Ptr groupManager, std::string groupId,
     FilterRequestFactory::Ptr factory, int filterTimeout, int maxBlockProcessPerReq)
-  : m_filterTimeout(filterTimeout * 1000),
+  : m_filterTimeout(filterTimeout),
     m_maxBlockProcessPerReq(maxBlockProcessPerReq),
     m_groupManager(std::move(groupManager)),
     m_group(std::move(groupId)),
@@ -69,7 +64,7 @@ void FilterSystem::cleanUpExpiredFilters()
             break;
         }
     }
-    m_filters.batchRemove<decltype(expiredFilters), false>(expiredFilters);
+    m_filters.batchRemove(expiredFilters);
     FILTER_LOG(INFO) << LOG_DESC("cleanUpExpiredFilters") << LOG_KV("filters", m_filters.size())
                      << LOG_KV("erasedFilters", expiredFilters.size())
                      << LOG_KV("traversedFiltersNum", traversedFiltersNum);

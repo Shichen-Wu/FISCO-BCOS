@@ -31,9 +31,11 @@
 #include "../vm/VMFactory.h"
 #include "../vm/VMInstance.h"
 #include "bcos-executor/src/Common.h"
+#include "bcos-framework/executor/PrecompiledTypeDef.h"
 #include "bcos-framework/ledger/EVMAccount.h"
 #include "bcos-framework/ledger/Features.h"
 #include "bcos-table/src/ContractShardUtils.h"
+#include "bcos-utilities/Exceptions.h"
 
 #ifdef WITH_WASM
 #include "../vm/gas_meter/GasInjector.h"
@@ -47,9 +49,9 @@
 #include "bcos-framework/protocol/Exceptions.h"
 #include "bcos-framework/protocol/Protocol.h"
 #include "bcos-protocol/TransactionStatus.h"
-#include <bcos-framework/executor/ExecuteError.h>
-#include <bcos-tool/BfsFileFactory.h>
-#include <bcos-utilities/Common.h>
+#include "bcos-framework/executor/ExecuteError.h"
+#include "bcos-tool/BfsFileFactory.h"
+#include "bcos-utilities/Common.h"
 #include <boost/algorithm/hex.hpp>
 #include <boost/exception/diagnostic_information.hpp>
 #include <boost/lexical_cast.hpp>
@@ -315,6 +317,33 @@ CallParameters::UniquePtr TransactionExecutive::execute(CallParameters::UniquePt
         }
     }
 
+    // NOTE: It should check nonce before execution, but it should check nonce in the state storage,
+    // not backend storage. But the txs of the same sender in one block will be disordered, so it
+    // cannot check state storage for now. Will add this logic in the future.
+    //
+    // if (callParameters->origin == callParameters->senderAddress &&
+    //     callParameters->transactionType != TransactionType::BCOSTransaction &&
+    //     m_blockContext.features().get(ledger::Features::Flag::bugfix_check_nonce_in_executive))
+    // {
+    //     // only check eoa tx
+    //     ledger::account::EVMAccount eoa(*m_blockContext.backendStorage(),
+    //         callParameters->senderAddress,
+    //         m_blockContext.features().get(ledger::Features::Flag::feature_raw_address));
+    //     auto const nonceInStorage = task::syncWait(eoa.nonce());
+    //     if (auto const storageNonce = u256(nonceInStorage.value_or("0"));
+    //         callParameters->nonce < storageNonce)
+    //     {
+    //         EXECUTIVE_LOG(WARNING)
+    //             << LOG_BADGE("Execute") << LOG_DESC("nonce is not match and will revert")
+    //             << LOG_KV("nonceInStorage", storageNonce)
+    //             << LOG_KV("callNonce", callParameters->nonce);
+    //         callResults = std::move(callParameters);
+    //         callResults->status = static_cast<int32_t>(TransactionStatus::RevertInstruction);
+    //         callResults->evmStatus = EVMC_REVERT;
+    //         return callResults;
+    //     }
+    // }
+
     if (m_blockContext.features().get(
             ledger::Features::Flag::bugfix_nonce_not_increase_when_revert))
     {
@@ -325,9 +354,22 @@ CallParameters::UniquePtr TransactionExecutive::execute(CallParameters::UniquePt
             ledger::account::EVMAccount address(*m_blockContext.storage(),
                 callParameters->senderAddress,
                 m_blockContext.features().get(ledger::Features::Flag::feature_raw_address));
-            task::wait([](decltype(address) addr) -> task::Task<void> {
-                co_await ledger::account::increaseNonce(addr);
-            }(std::move(address)));
+            if (m_blockContext.features().get(ledger::Features::Flag::bugfix_nonce_initialize))
+            {
+                if (!precompiled::contains(bcos::precompiled::c_systemTxsAddress,
+                        std::string_view{callParameters->senderAddress}))
+                {
+                    task::wait([](decltype(address) addr) -> task::Task<void> {
+                        co_await addr.increaseNonce();
+                    }(std::move(address)));
+                }
+            }
+            else
+            {
+                task::wait([](decltype(address) addr) -> task::Task<void> {
+                    co_await addr.increaseNonce();
+                }(std::move(address)));
+            }
         }
     }
     else
@@ -348,15 +390,15 @@ CallParameters::UniquePtr TransactionExecutive::execute(CallParameters::UniquePt
                     callParameters->senderAddress,
                     m_blockContext.features().get(ledger::Features::Flag::feature_raw_address));
                 task::wait([](decltype(address) addr, u256 callNonce) -> task::Task<void> {
-                    if (!co_await ledger::account::exists(addr))
+                    if (!co_await addr.exists())
                     {
-                        co_await ledger::account::create(addr);
+                        co_await addr.create();
                     }
-                    auto const nonceInStorage = co_await ledger::account::nonce(addr);
+                    auto const nonceInStorage = co_await addr.nonce();
                     // FIXME)) : only web3 tx use this
                     auto const storageNonce = u256(nonceInStorage.value_or("0"));
                     auto const newNonce = std::max(callNonce, storageNonce) + 1;
-                    co_await ledger::account::setNonce(addr, newNonce.convert_to<std::string>());
+                    co_await addr.setNonce(newNonce.convert_to<std::string>());
                 }(std::move(address), callParameters->nonce));
             }
         }
@@ -578,7 +620,7 @@ CallParameters::UniquePtr TransactionExecutive::transferBalance(
                 << LOG_DESC(
                        "transferBalance to sub success but add failed, strike a balance failed.")
                 << LOG_KV("restoreAccount", subAccount) << LOG_KV("tablename", formTableName);
-            BOOST_THROW_EXCEPTION(PrecompiledError(
+            BOOST_THROW_EXCEPTION(PrecompiledError{} << errinfo_comment(
                 "transferBalance to sub success but add failed, strike a balance failed."));
         }
 
@@ -789,8 +831,8 @@ std::tuple<std::unique_ptr<HostContext>, CallParameters::UniquePtr> TransactionE
             // set nonce to 1 when create contract
             ledger::account::EVMAccount account(
                 *m_blockContext.storage(), callParameters->codeAddress, false);
-            task::wait([](decltype(account) contract_account) -> task::Task<void> {
-                co_await ledger::account::setNonce(contract_account, "1");
+            task::wait([](decltype(account) contractAccount) -> task::Task<void> {
+                co_await contractAccount.setNonce("1");
             }(std::move(account)));
         }
 
@@ -1436,7 +1478,7 @@ std::shared_ptr<precompiled::PrecompiledExecResult> TransactionExecutive::execPr
     [[unlikely]] EXECUTIVE_LOG(WARNING)
         << LOG_DESC("[call]Can't find precompiled address")
         << LOG_KV("address", _precompiledParams->m_precompiledAddress);
-    BOOST_THROW_EXCEPTION(PrecompiledError("can't find precompiled address."));
+    BOOST_THROW_EXCEPTION(PrecompiledError{} << errinfo_comment("can't find precompiled address."));
 }
 
 bool TransactionExecutive::isPrecompiled(const std::string& address) const

@@ -20,23 +20,20 @@
  */
 
 #pragma once
+#include "bcos-boostssl/websocket/WsConfig.h"
+#include "bcos-crypto/interfaces/crypto/KeyFactory.h"
+#include "bcos-framework/election/LeaderEntryPointInterface.h"
+#include "bcos-framework/gateway/GatewayInterface.h"
+#include "bcos-framework/security/KeyEncryptInterface.h"
+#include "bcos-rpc/Rpc.h"
 #include "bcos-rpc/amop/AMOPClient.h"
-#include "bcos-rpc/amop/AirAMOPClient.h"
+#include "bcos-rpc/event/EventSub.h"
 #include "bcos-rpc/groupmgr/AirGroupManager.h"
 #include "bcos-rpc/groupmgr/GroupManager.h"
+#include "bcos-rpc/jsonrpc/JsonRpcImpl_2_0.h"
+#include "bcos-tool/NodeConfig.h"
 #include "web3jsonrpc/Web3JsonRpcImpl.h"
-
-#include <bcos-boostssl/websocket/WsConfig.h>
-#include <bcos-crypto/interfaces/crypto/KeyFactory.h>
-#include <bcos-framework/consensus/ConsensusInterface.h>
-#include <bcos-framework/election/LeaderEntryPointInterface.h>
-#include <bcos-framework/gateway/GatewayInterface.h>
-#include <bcos-framework/security/KeyEncryptInterface.h>
-#include <bcos-rpc/Common.h>
-#include <bcos-rpc/Rpc.h>
-#include <bcos-rpc/event/EventSub.h>
-#include <bcos-rpc/jsonrpc/JsonRpcImpl_2_0.h>
-#include <bcos-tool/NodeConfig.h>
+#include <utility>
 
 namespace bcos
 {
@@ -72,7 +69,10 @@ public:
         GroupManager::Ptr _groupManager, AMOPClient::Ptr _amopClient);
 
     bcos::tool::NodeConfig::Ptr nodeConfig() const { return m_nodeConfig; }
-    void setNodeConfig(bcos::tool::NodeConfig::Ptr _nodeConfig) { m_nodeConfig = _nodeConfig; }
+    void setNodeConfig(bcos::tool::NodeConfig::Ptr _nodeConfig)
+    {
+        m_nodeConfig = std::move(_nodeConfig);
+    }
 
 protected:
     // for groupManager builder

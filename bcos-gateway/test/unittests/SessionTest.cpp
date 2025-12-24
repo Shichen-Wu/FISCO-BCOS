@@ -18,15 +18,16 @@
  * @author: octopus
  * @date 2023-02-23
  */
-#include <bcos-crypto/hash/Keccak256.h>
-#include <bcos-gateway/libnetwork/ASIOInterface.h>
-#include <bcos-gateway/libnetwork/Host.h>
-#include <bcos-gateway/libnetwork/Session.h>
-#include <bcos-gateway/libp2p/P2PMessage.h>
-#include <bcos-utilities/ThreadPool.h>
-#include <bcos-utilities/testutils/TestPromptFixture.h>
+#include "bcos-crypto/hash/Keccak256.h"
+#include "bcos-gateway/libnetwork/ASIOInterface.h"
+#include "bcos-gateway/libnetwork/Host.h"
+#include "bcos-gateway/libnetwork/Session.h"
+#include "bcos-gateway/libp2p/P2PMessage.h"
+#include "bcos-utilities/ThreadPool.h"
+#include "bcos-utilities/testutils/TestPromptFixture.h"
 #include <boost/test/tools/old/interface.hpp>
 #include <boost/test/unit_test.hpp>
+#include <queue>
 
 using namespace bcos;
 using namespace gateway;
@@ -43,7 +44,7 @@ public:
     FakeASIO() : m_threadPool(std::make_shared<bcos::ThreadPool>("FakeASIO", 1)) {};
     virtual ~FakeASIO() noexcept override {};
 
-    void readSome(std::shared_ptr<SocketFace> socket, boost::asio::mutable_buffers_1 buffers,
+    void readSome(std::shared_ptr<SocketFace> socket, boost::asio::mutable_buffer buffers,
         ReadWriteHandler handler)
     {
         std::size_t bytesTransferred = 0;
@@ -73,7 +74,7 @@ public:
     }
 
     void asyncReadSome(const std::shared_ptr<SocketFace>& socket,
-        boost::asio::mutable_buffers_1 buffers, ReadWriteHandler handler) override
+        boost::asio::mutable_buffer buffers, ReadWriteHandler handler) override
     {
         m_threadPool->enqueue([this, socket, buffers, handler]() {
             if (m_recvPackets.empty())
@@ -228,7 +229,6 @@ private:
         return packet;
     }
 
-private:
     std::vector<uint8_t> m_sendBuffer;
     std::queue<Packet> m_sendPackets;
 };

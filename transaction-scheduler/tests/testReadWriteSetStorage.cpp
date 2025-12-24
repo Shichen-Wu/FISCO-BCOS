@@ -1,6 +1,5 @@
 #include "bcos-framework/storage2/MemoryStorage.h"
 #include "bcos-framework/storage2/Storage.h"
-#include <bcos-framework/transaction-executor/TransactionExecutor.h>
 #include <bcos-task/Wait.h>
 #include <bcos-transaction-scheduler/ReadWriteSetStorage.h>
 #include <fmt/format.h>
@@ -9,7 +8,6 @@
 
 using namespace bcos;
 using namespace bcos::storage2;
-using namespace bcos::executor_v1;
 using namespace bcos::scheduler_v1;
 
 class TestReadWriteSetStorageFixture

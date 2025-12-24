@@ -25,8 +25,6 @@ else()
     set(EXCLUDE_SUITES "TestTiKVStorage")
 endif()
 
-# config_test_cases("" "${SOURCES}" bin/${TEST_BINARY_NAME} "${EXCLUDE_SUITES}")
-
 add_executable(${TEST_BINARY_NAME} ${SOURCES})
 target_include_directories(${TEST_BINARY_NAME} PRIVATE . ../../src)
 
@@ -37,11 +35,4 @@ target_link_libraries(${TEST_BINARY_NAME} PUBLIC ${STORAGE_TARGET} Boost::unit_t
 set_source_files_properties("main.cpp" PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
 set_target_properties(${TEST_BINARY_NAME} PROPERTIES UNITY_BUILD "ON")
 include(SearchTestCases)
-config_test_cases("" "${SOURCES}" ${TEST_BINARY_NAME} "${EXCLUDE_SUITES}")
-# add_test(NAME test-storage WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY} COMMAND ${TEST_BINARY_NAME})
-
-# for code coverage
-#if (COVERAGE)
-#    include(Coverage)
-#    config_coverage("storage-coverage" "'/usr*' 'boost/**'")
-#endif ()
+config_test_cases("" "${SOURCES}" ${TEST_BINARY_NAME} "${EXCLUDE_SUITES}" "")

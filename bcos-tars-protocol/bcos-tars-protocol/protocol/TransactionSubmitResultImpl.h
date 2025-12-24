@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include "../Common.h"
 #include "TransactionReceiptImpl.h"
 #include "bcos-tars-protocol/tars/TransactionReceipt.h"
 #include "bcos-tars-protocol/tars/TransactionSubmitResult.h"
@@ -105,6 +104,12 @@ public:
 
     std::string const& to() const override { return m_inner()->to; }
     void setTo(std::string const& _to) override { m_inner()->to = _to; }
+
+    uint8_t type() const override { return m_inner()->type; }
+    void setType(uint8_t _type) override
+    {
+        m_inner()->type = static_cast<decltype(m_inner()->type)>(_type);
+    }
 
 private:
     bcos::crypto::CryptoSuite::Ptr m_cryptoSuite;

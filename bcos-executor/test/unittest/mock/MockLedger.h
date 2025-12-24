@@ -2,8 +2,8 @@
 
 #include "MockBlock.h"
 #include "bcos-framework/storage/StorageInterface.h"
-#include <bcos-framework/ledger/LedgerInterface.h>
-#include <bcos-framework/ledger/LedgerTypeDef.h>
+#include "bcos-framework/ledger/LedgerInterface.h"
+#include "bcos-framework/ledger/LedgerTypeDef.h"
 #include <boost/archive/binary_iarchive.hpp>
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/test/unit_test.hpp>
@@ -75,6 +75,8 @@ public:
             block->setBlockHeader(m_blockHeader);
         }
         block->blockHeader()->setNumber(m_blockNumber);
+        auto hashImpl = std::make_shared<crypto::Keccak256>();
+        block->blockHeader()->calculateHash(*hashImpl);
         _onGetBlock(nullptr, block);
     };
 
@@ -110,7 +112,7 @@ public:
 
     void asyncGetTransactionReceiptByHash(crypto::HashType const& _txHash, bool _withProof,
         std::function<void(
-            Error::Ptr, protocol::TransactionReceipt::ConstPtr, bcos::ledger::MerkleProofPtr)>
+            Error::Ptr, protocol::TransactionReceipt::Ptr, bcos::ledger::MerkleProofPtr)>
             _onGetTx) override
     {
         BOOST_CHECK(false);  // Need implementations

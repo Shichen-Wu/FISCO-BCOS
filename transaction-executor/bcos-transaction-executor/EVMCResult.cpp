@@ -1,5 +1,3 @@
-#pragma once
-
 #include "EVMCResult.h"
 #include "bcos-codec/abi/ContractABICodec.h"
 #include "bcos-protocol/TransactionStatus.h"
@@ -10,9 +8,7 @@
 #include <cstdint>
 #include <memory>
 
-struct UnknownEVMCStatus : public bcos::Exception
-{
-};
+DERIVE_BCOS_EXCEPTION(UnknownEVMCStatus);
 
 static void cleanEVMCResult(evmc_result& from)
 {
@@ -21,17 +17,13 @@ static void cleanEVMCResult(evmc_result& from)
     from.output_size = 0;
 }
 
-bcos::executor_v1::EVMCResult::EVMCResult(evmc_result&& from)
+bcos::executor_v1::EVMCResult::EVMCResult(evmc_result from)
   : evmc_result(from), status{evmcStatusToTransactionStatus(from.status_code)}
-{
-    cleanEVMCResult(from);
-}
+{}
 
-bcos::executor_v1::EVMCResult::EVMCResult(evmc_result&& from, protocol::TransactionStatus _status)
+bcos::executor_v1::EVMCResult::EVMCResult(evmc_result from, protocol::TransactionStatus _status)
   : evmc_result(from), status(_status)
-{
-    cleanEVMCResult(from);
-}
+{}
 
 bcos::executor_v1::EVMCResult::EVMCResult(EVMCResult&& from) noexcept
   : evmc_result(from), status{from.status}

@@ -23,7 +23,6 @@
 #include "bcos-framework/sealer/SealerInterface.h"
 #include <bcos-utilities/Worker.h>
 #include <chrono>
-#include <utility>
 
 namespace bcos::sealer
 {
@@ -51,23 +50,24 @@ public:
     // for sys block
     void asyncNoteLatestBlockNumber(int64_t _blockNumber) override;
     void asyncNoteLatestBlockHash(crypto::HashType _hash) override;
+    void asyncNoteLatestBlockTimestamp(int64_t _timestamp) override;
     // interface for the consensus module to notify reset the sealing transactions
     void asyncResetSealing(std::function<void(Error::Ptr)> _onRecvResponse) override;
 
     virtual void init(bcos::consensus::ConsensusInterface::Ptr _consensus);
 
     uint16_t hookWhenSealBlock([[maybe_unused]] bcos::protocol::Block::Ptr _block) override;
-    void setFetchTimeout(int fetchTimeout) { m_fetchTimeout = fetchTimeout; }
+    void setFetchTimeout(int fetchTimeout);
 
     // only for test
-    SealerConfig::Ptr sealerConfig() const { return m_sealerConfig; }
-    SealingManager::Ptr sealingManager() const { return m_sealingManager; }
+    SealerConfig::Ptr sealerConfig() const;
+    SealingManager::Ptr sealingManager() const;
 
     void executeWorker() override;
     void setSealingManager(SealingManager::Ptr _sealingManager);
 
 protected:
-    virtual void noteGenerateProposal() { m_signalled.notify_all(); }
+    virtual void noteGenerateProposal();
     virtual void submitProposal(bool _containSysTxs, bcos::protocol::Block::Ptr _block);
 
     SealerConfig::Ptr m_sealerConfig;
@@ -81,6 +81,6 @@ protected:
     boost::mutex x_signalled;
     bcos::crypto::Hash::Ptr m_hashImpl;
 
-    std::chrono::steady_clock::time_point increseLastFetchTimepoint();
+    std::chrono::steady_clock::time_point increaseLastFetchTimepoint();
 };
 }  // namespace bcos::sealer

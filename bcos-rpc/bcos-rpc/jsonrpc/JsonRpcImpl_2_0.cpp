@@ -18,25 +18,23 @@
  * @author: octopus
  * @date: 2021-07-09
  */
+#include "bcos-rpc/jsonrpc/JsonRpcImpl_2_0.h"
+#include "bcos-boostssl/websocket/WsMessage.h"
 #include "bcos-crypto/ChecksumAddress.h"
 #include "bcos-crypto/interfaces/crypto/CommonType.h"
 #include "bcos-crypto/interfaces/crypto/Hash.h"
+#include "bcos-framework/Common.h"
+#include "bcos-framework/protocol/GlobalConfig.h"
+#include "bcos-framework/protocol/LogEntry.h"
+#include "bcos-framework/protocol/Transaction.h"
+#include "bcos-framework/protocol/TransactionReceipt.h"
+#include "bcos-protocol/TransactionStatus.h"
+#include "bcos-rpc/jsonrpc/Common.h"
 #include "bcos-rpc/validator/CallValidator.h"
+#include "bcos-rpc/validator/TransactionValidator.h"
+#include "bcos-rpc/web3jsonrpc/model/Web3Transaction.h"
+#include "bcos-utilities/Base64.h"
 #include "bcos-utilities/BoostLog.h"
-#include "bcos-utilities/Common.h"
-#include <bcos-boostssl/websocket/WsMessage.h>
-#include <bcos-boostssl/websocket/WsService.h>
-#include <bcos-framework/Common.h>
-#include <bcos-framework/protocol/GlobalConfig.h>
-#include <bcos-framework/protocol/LogEntry.h>
-#include <bcos-framework/protocol/Transaction.h>
-#include <bcos-framework/protocol/TransactionReceipt.h>
-#include <bcos-protocol/TransactionStatus.h>
-#include <bcos-rpc/jsonrpc/Common.h>
-#include <bcos-rpc/jsonrpc/JsonRpcImpl_2_0.h>
-#include <bcos-rpc/web3jsonrpc/model/Web3Transaction.h>
-#include <bcos-task/Wait.h>
-#include <bcos-utilities/Base64.h>
 #include <json/value.h>
 #include <boost/algorithm/hex.hpp>
 #include <boost/algorithm/string/case_conv.hpp>
@@ -71,8 +69,10 @@ JsonRpcImpl_2_0::JsonRpcImpl_2_0(GroupManager::Ptr _groupManager,
     m_forceSender(std::move(forceSender))
 {
     m_wsService->registerMsgHandler(bcos::protocol::MessageType::RPC_REQUEST,
-        boost::bind(&JsonRpcImpl_2_0::handleRpcRequest, this, boost::placeholders::_1,
-            boost::placeholders::_2));
+        [this](std::shared_ptr<boostssl::MessageFace> msg,
+            std::shared_ptr<boostssl::ws::WsSession> session) {
+            this->handleRpcRequest(std::move(msg), std::move(session));
+        });
 }
 
 void JsonRpcImpl_2_0::handleRpcRequest(
@@ -82,7 +82,6 @@ void JsonRpcImpl_2_0::handleRpcRequest(
     auto req = std::string_view((const char*)buffer->data(), buffer->size());
 
     auto start = std::chrono::high_resolution_clock::now();
-    auto endpoint = _session->endPoint();
     auto seq = _msg->seq();
     auto version = _msg->version();
     auto ext = _msg->ext();
@@ -396,6 +395,8 @@ void bcos::rpc::toJsonResp(Json::Value& jResp, bcos::protocol::Block& block, boo
     toJsonResp(jResp, block.blockHeader());
     auto txSize = _onlyTxHash ? block.transactionsMetaDataSize() : block.transactionsSize();
 
+    auto transactionMetaDatas = block.transactionMetaDatas();
+    auto transactions = block.transactions();
     Json::Value jTxs(Json::arrayValue);
     for (std::size_t index = 0; index < txSize; ++index)
     {
@@ -404,11 +405,11 @@ void bcos::rpc::toJsonResp(Json::Value& jResp, bcos::protocol::Block& block, boo
         {
             // Note: should not call transactionHash for in the common cases transactionHash maybe
             // empty
-            jTx = toHexStringWithPrefix(block.transactionMetaData(index)->hash());
+            jTx = toHexStringWithPrefix(transactionMetaDatas[index]->hash());
         }
         else
         {
-            auto transaction = block.transaction(index);
+            auto transaction = transactions[index];
             toJsonResp(jTx, *transaction);
         }
         jTxs.append(jTx);
@@ -508,10 +509,17 @@ void JsonRpcImpl_2_0::sendTransaction(std::string_view groupID, std::string_view
                 RPC_IMPL_LOG(TRACE) << LOG_DESC("sendTransaction") << LOG_KV("group", groupID)
                                     << LOG_KV("node", nodeName) << LOG_KV("isWasm", isWasm);
             }
+            // check transaction validator
+            if (transaction->chainId() != self->m_groupManager->chainID())
+            {
+                BOOST_THROW_EXCEPTION(
+                    JsonRpcException(JsonRpcError::InternalError, "Chain ID mismatch!"));
+            }
+            TransactionValidator::checkTransaction(*transaction, true);
 
             auto start = utcSteadyTime();
             co_await txpool->broadcastTransactionBuffer(bcos::ref(transactionData));
-            auto submitResult = co_await txpool->submitTransaction(transaction);
+            auto submitResult = co_await txpool->submitTransaction(transaction, true);
 
             auto txHash = submitResult->txHash();
             auto hexPreTxHash = txHash.hexPrefixed();

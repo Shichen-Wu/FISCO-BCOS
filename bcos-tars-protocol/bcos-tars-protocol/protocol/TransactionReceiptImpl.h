@@ -35,7 +35,6 @@
 #include <bcos-utilities/Common.h>
 #include <bcos-utilities/DataConvertUtility.h>
 #include <bcos-utilities/FixedBytes.h>
-#include <utility>
 
 namespace bcostars::protocol
 {
@@ -43,12 +42,11 @@ class TransactionReceiptImpl : public bcos::protocol::TransactionReceipt
 {
 public:
     TransactionReceiptImpl(const TransactionReceiptImpl&) = default;
-    TransactionReceiptImpl(TransactionReceiptImpl&&) = delete;
+    TransactionReceiptImpl(TransactionReceiptImpl&&) noexcept = default;
     TransactionReceiptImpl& operator=(const TransactionReceiptImpl&) = default;
-    TransactionReceiptImpl& operator=(TransactionReceiptImpl&&) = delete;
-    explicit TransactionReceiptImpl(std::function<bcostars::TransactionReceipt*()> inner)
-      : m_inner(std::move(inner))
-    {}
+    TransactionReceiptImpl& operator=(TransactionReceiptImpl&&) noexcept = default;
+    TransactionReceiptImpl();
+    explicit TransactionReceiptImpl(std::function<bcostars::TransactionReceipt*()> inner);
 
     ~TransactionReceiptImpl() override = default;
     void decode(bcos::bytesConstRef _receiptData) override;
@@ -63,13 +61,22 @@ public:
     int32_t status() const override;
     bcos::bytesConstRef output() const override;
     gsl::span<const bcos::protocol::LogEntry> logEntries() const override;
-    bcos::protocol::LogEntries&& takeLogEntries() override;
+    bcos::protocol::LogEntries takeLogEntries() override;
     bcos::protocol::BlockNumber blockNumber() const override;
     std::string_view effectiveGasPrice() const override;
     void setEffectiveGasPrice(std::string effectiveGasPrice) override;
 
+    std::string_view cumulativeGasUsed() const override;
+    void setCumulativeGasUsed(std::string cumulativeGasUsed) override;
+    bcos::bytesConstRef logsBloom() const override;
+    void setLogsBloom(bcos::bytesConstRef logsBloom) override;
+    size_t transactionIndex() const override;
+    void setTransactionIndex(size_t index) override;
+    size_t logIndex() const override;
+    void setLogIndex(size_t index) override;
+
     const bcostars::TransactionReceipt& inner() const;
-    bcostars::TransactionReceipt& mutableInner();
+    bcostars::TransactionReceipt& inner();
 
     void setInner(const bcostars::TransactionReceipt& inner);
     void setInner(bcostars::TransactionReceipt&& inner);

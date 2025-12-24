@@ -42,8 +42,8 @@ public:
     ~TransactionImpl() override = default;
     TransactionImpl& operator=(const TransactionImpl& _tx) = delete;
     TransactionImpl(const TransactionImpl& _tx) = delete;
-    TransactionImpl& operator=(TransactionImpl&& _tx) = delete;
-    TransactionImpl(TransactionImpl&& _tx) = delete;
+    TransactionImpl& operator=(TransactionImpl&& _tx) = default;
+    TransactionImpl(TransactionImpl&& _tx) = default;
 
     friend class TransactionFactoryImpl;
 

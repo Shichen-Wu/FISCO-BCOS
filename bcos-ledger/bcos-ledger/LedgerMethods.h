@@ -2,6 +2,7 @@
 
 #include "ConsensusNode.h"
 #include "bcos-concepts/Serialize.h"
+#include "bcos-crypto/interfaces/crypto/Hash.h"
 #include "bcos-crypto/signature/key/KeyImpl.h"
 #include "bcos-executor/src/Common.h"
 #include "bcos-framework/consensus/ConsensusNode.h"
@@ -10,10 +11,11 @@
 #include "bcos-framework/ledger/LedgerConfig.h"
 #include "bcos-framework/ledger/LedgerInterface.h"
 #include "bcos-framework/ledger/LedgerTypeDef.h"
-#include "bcos-framework/protocol/Protocol.h"
 #include "bcos-framework/protocol/ProtocolTypeDef.h"
 #include "bcos-framework/storage/StorageInterface.h"
+#include "bcos-framework/storage2/Storage.h"
 #include "bcos-framework/transaction-executor/StateKey.h"
+#include "bcos-ledger/LedgerImpl.h"
 #include "bcos-table/src/LegacyStorageWrapper.h"
 #include "bcos-tars-protocol/impl/TarsSerializable.h"
 #include "bcos-task/AwaitableValue.h"
@@ -64,7 +66,7 @@ task::Task<void> tag_invoke(ledger::tag_t<prewriteBlock> /*unused*/, LedgerInter
                 storage);
     }
 
-    co_return co_await prewriteBlockToStorage(ledger, std::move(transactions), std::move(block),
+    co_await prewriteBlockToStorage(ledger, std::move(transactions), std::move(block),
         withTransactionsAndReceipts, std::move(legacyStorage));
 }
 
@@ -76,6 +78,114 @@ void tag_invoke(ledger::tag_t<removeExpiredNonce>, LedgerInterface& ledger,
 
 task::Task<protocol::Block::Ptr> tag_invoke(ledger::tag_t<getBlockData> /*unused*/,
     LedgerInterface& ledger, protocol::BlockNumber blockNumber, int32_t blockFlag);
+
+task::Task<protocol::Block::Ptr> tag_invoke(ledger::tag_t<getBlockData> /*unused*/,
+    storage2::ReadableStorage<executor_v1::StateKeyView> auto& storage,
+    protocol::BlockNumber _blockNumber, int32_t _blockFlag, protocol::BlockFactory& blockFactory)
+{
+    LEDGER_LOG(TRACE) << "GetBlockDataByNumber request" << LOG_KV("blockNumber", _blockNumber)
+                      << LOG_KV("blockFlag", _blockFlag);
+    if (_blockNumber < 0 || _blockFlag < 0)
+    {
+        LEDGER_LOG(INFO) << "GetBlockDataByNumber, wrong argument";
+        BOOST_THROW_EXCEPTION(BCOS_ERROR(LedgerError::ErrorArgument, "Wrong argument"));
+    }
+    if (((_blockFlag & TRANSACTIONS) != 0) && ((_blockFlag & TRANSACTIONS_HASH) != 0))
+    {
+        LEDGER_LOG(INFO) << "GetBlockDataByNumber, wrong argument, transaction already has hash";
+        BOOST_THROW_EXCEPTION(BCOS_ERROR(LedgerError::ErrorArgument, "Wrong argument"));
+    }
+
+    if ((_blockFlag & TRANSACTIONS) != 0 || (_blockFlag & RECEIPTS) != 0)
+    {
+        if (auto entry = co_await storage2::readOne(
+                storage, executor_v1::StateKeyView{SYS_CURRENT_STATE, SYS_KEY_ARCHIVED_NUMBER}))
+        {
+            auto archivedBlockNumber = boost::lexical_cast<int64_t>(entry->get());
+            if (_blockNumber < archivedBlockNumber)
+            {
+                LEDGER_LOG(INFO)
+                    << "GetBlockDataByNumber, block number is larger than archived number";
+                BOOST_THROW_EXCEPTION(BCOS_ERROR(LedgerError::ErrorArgument,
+                    "Wrong argument, this block's transactions and receipts are archived"));
+            }
+        }
+    }
+
+    auto block = blockFactory.createBlock();
+    auto blockNumberStr = std::to_string(_blockNumber);
+    if (_blockFlag & HEADER)
+    {
+        if (auto entry = co_await storage2::readOne(
+                storage, executor_v1::StateKeyView{SYS_NUMBER_2_BLOCK_HEADER, blockNumberStr}))
+        {
+            auto field = entry->getField(0);
+            auto headerPtr = blockFactory.blockHeaderFactory()->createBlockHeader(
+                bcos::bytesConstRef((bcos::byte*)field.data(), field.size()));
+            block->setBlockHeader(std::move(headerPtr));
+        }
+        else
+        {
+            BOOST_THROW_EXCEPTION(NotFoundBlockHeader{});
+        }
+    }
+    if (((_blockFlag & TRANSACTIONS) != 0) || ((_blockFlag & RECEIPTS) != 0) ||
+        (_blockFlag & TRANSACTIONS_HASH) != 0)
+    {
+        if (auto txsEntry = co_await storage2::readOne(
+                storage, executor_v1::StateKeyView{SYS_NUMBER_2_TXS, blockNumberStr}))
+        {
+            auto txs = txsEntry->getField(0);
+            auto blockWithTxs =
+                blockFactory.createBlock(bcos::bytesConstRef((bcos::byte*)txs.data(), txs.size()));
+            auto hashes = blockWithTxs->transactionHashes() | ::ranges::to<std::vector>();
+            LEDGER_LOG(TRACE) << "Get transactions hash list success, size:" << hashes.size();
+
+            if ((_blockFlag & TRANSACTIONS) != 0)
+            {
+                auto transactions = co_await storage2::readSome(
+                    storage, hashes | ::ranges::views::transform([](auto& hash) {
+                        return executor_v1::StateKeyView{
+                            SYS_HASH_2_TX, bcos::concepts::bytebuffer::toView(hash)};
+                    }));
+                for (auto& txEntry : transactions)
+                {
+                    auto field = txEntry->getField(0);
+                    auto transaction = blockFactory.transactionFactory()->createTransaction(
+                        bcos::bytesConstRef((bcos::byte*)field.data(), field.size()), false, false);
+                    block->appendTransaction(std::move(transaction));
+                }
+            }
+
+            if ((_blockFlag & RECEIPTS) != 0)
+            {
+                auto receipts = co_await storage2::readSome(
+                    storage, ::ranges::views::transform(hashes, [](auto& hash) {
+                        return executor_v1::StateKeyView{
+                            SYS_HASH_2_RECEIPT, bcos::concepts::bytebuffer::toView(hash)};
+                    }));
+                for (auto& receiptEntry : receipts)
+                {
+                    auto field = receiptEntry->getField(0);
+                    auto receipt = blockFactory.receiptFactory()->createReceipt(
+                        bcos::bytesConstRef((bcos::byte*)field.data(), field.size()));
+                    block->appendReceipt(std::move(receipt));
+                }
+            }
+
+            if ((_blockFlag & TRANSACTIONS_HASH) != 0)
+            {
+                for (auto& hash : hashes)
+                {
+                    auto txMeta = blockFactory.createTransactionMetaData();
+                    txMeta->setHash(hash);
+                    block->appendTransactionMetaData(std::move(txMeta));
+                }
+            }
+        }
+    }
+    co_return block;
+}
 
 task::Task<TransactionCount> tag_invoke(
     ledger::tag_t<getTransactionCount> /*unused*/, LedgerInterface& ledger);
@@ -96,7 +206,8 @@ task::Task<void> tag_invoke(
     ledger::tag_t<getLedgerConfig> /*unused*/, LedgerInterface& ledger, LedgerConfig& ledgerConfig);
 
 task::Task<void> tag_invoke(ledger::tag_t<getLedgerConfig> /*unused*/, auto& storage,
-    LedgerConfig& ledgerConfig, protocol::BlockNumber blockNumber)
+    LedgerConfig& ledgerConfig, protocol::BlockNumber blockNumber,
+    protocol::BlockFactory& blockFactory)
 {
     auto nodeList = co_await ledger::getNodeList(storage);
     ledgerConfig.setConsensusNodeList(::ranges::views::filter(nodeList, [](auto& node) {
@@ -130,9 +241,20 @@ task::Task<void> tag_invoke(ledger::tag_t<getLedgerConfig> /*unused*/, auto& sto
     auto gasPrice = sysConfig.getOrDefault(ledger::SystemConfig::tx_gas_price, "0x0");
     ledgerConfig.setGasPrice(std::make_tuple(gasPrice.first, gasPrice.second));
 
+    // Get block header to retrieve timestamp
+    auto blockNumberStr = std::to_string(blockNumber);
+    if (auto entry = co_await storage2::readOne(
+            storage, executor_v1::StateKeyView{SYS_NUMBER_2_BLOCK_HEADER, blockNumberStr}))
+    {
+        auto field = entry->getField(0);
+        auto headerPtr = blockFactory.blockHeaderFactory()->createBlockHeader(
+            bcos::bytesConstRef((bcos::byte*)field.data(), field.size()));
+        ledgerConfig.setTimestamp(headerPtr->timestamp());
+        ledgerConfig.setHash(headerPtr->hash());
+    }
     ledgerConfig.setBlockNumber(blockNumber);
-    auto blockHash = co_await getBlockHash(storage, blockNumber, fromStorage);
-    ledgerConfig.setHash(blockHash.value_or(crypto::HashType{}));
+    // auto blockHash = co_await getBlockHash(storage, blockNumber, fromStorage);
+    // ledgerConfig.setHash(blockHash.value_or(crypto::HashType{}));
 
     Features features;
     co_await readFromStorage(features, storage, blockNumber);
@@ -182,7 +304,7 @@ task::Task<void> tag_invoke(ledger::tag_t<getLedgerConfig> /*unused*/, auto& sto
 
 task::Task<Features> tag_invoke(ledger::tag_t<getFeatures> /*unused*/, LedgerInterface& ledger);
 
-task::Task<protocol::TransactionReceipt::ConstPtr> tag_invoke(
+task::Task<protocol::TransactionReceipt::Ptr> tag_invoke(
     ledger::tag_t<getReceipt>, LedgerInterface& ledger, crypto::HashType const& txHash);
 
 task::Task<protocol::TransactionsConstPtr> tag_invoke(
@@ -200,7 +322,8 @@ bcos::task::Task<bcos::crypto::HashType> tag_invoke(ledger::tag_t<getBlockHash> 
     LedgerInterface& ledger, protocol::BlockNumber blockNumber);
 
 task::Task<std::optional<crypto::HashType>> tag_invoke(ledger::tag_t<getBlockHash> /*unused*/,
-    auto& storage, protocol::BlockNumber blockNumber, FromStorage /*unused*/)
+    storage2::ReadableStorage<executor_v1::StateKeyView> auto& storage,
+    protocol::BlockNumber blockNumber, FromStorage /*unused*/)
 {
     LEDGER_LOG(TRACE) << "GetBlockHashByNumber request" << LOG_KV("blockNumber", blockNumber);
     if (blockNumber < 0)
@@ -221,7 +344,8 @@ task::Task<std::optional<crypto::HashType>> tag_invoke(ledger::tag_t<getBlockHas
 }
 
 task::Task<std::optional<protocol::BlockNumber>> tag_invoke(
-    ledger::tag_t<getBlockNumber> /*unused*/, auto& storage, crypto::HashType hash,
+    ledger::tag_t<getBlockNumber> /*unused*/,
+    storage2::ReadableStorage<executor_v1::StateKey> auto& storage, crypto::HashType hash,
     FromStorage /*unused*/)
 {
     LEDGER_LOG(TRACE) << "GetBlockNumberByHash request" << LOG_KV("blockHash", hash);
@@ -236,8 +360,8 @@ task::Task<std::optional<protocol::BlockNumber>> tag_invoke(
     co_return {};
 }
 
-task::Task<protocol::BlockNumber> tag_invoke(
-    ledger::tag_t<getCurrentBlockNumber> /*unused*/, auto& storage, FromStorage /*unused*/)
+task::Task<protocol::BlockNumber> tag_invoke(ledger::tag_t<getCurrentBlockNumber> /*unused*/,
+    storage2::ReadableStorage<executor_v1::StateKey> auto& storage, FromStorage /*unused*/)
 {
     if (auto blockNumberEntry = co_await storage2::readOne(
             storage, executor_v1::StateKeyView{SYS_CURRENT_STATE, SYS_KEY_CURRENT_NUMBER}))
@@ -260,10 +384,10 @@ task::Task<protocol::BlockNumber> tag_invoke(
     co_return -1;
 }
 
-task::Task<consensus::ConsensusNodeList> tag_invoke(
-    ledger::tag_t<getNodeList> /*unused*/, auto& storage)
+task::Task<consensus::ConsensusNodeList> tag_invoke(ledger::tag_t<getNodeList> /*unused*/,
+    storage2::ReadableStorage<executor_v1::StateKey> auto& storage)
 {
-    LEDGER_LOG(DEBUG) << "GetNodeLis";
+    LEDGER_LOG(DEBUG) << "getNodeList";
     auto nodeListEntry =
         co_await storage2::readOne(storage, executor_v1::StateKeyView{SYS_CONSENSUS, "key"});
     if (!nodeListEntry)
@@ -273,7 +397,7 @@ task::Task<consensus::ConsensusNodeList> tag_invoke(
 
     auto ledgerConsensusNodeList = decodeConsensusList(nodeListEntry->getField(0));
     consensus::ConsensusNodeList nodes =
-        ledgerConsensusNodeList | RANGES::views::transform([](auto const& node) {
+        ledgerConsensusNodeList | ::ranges::views::transform([](auto const& node) {
             auto nodeIDBin = fromHex(node.nodeID);
             crypto::NodeIDPtr nodeID = std::make_shared<crypto::KeyImpl>(nodeIDBin);
             auto type = magic_enum::enum_cast<consensus::Type>(node.type);
@@ -287,14 +411,14 @@ task::Task<consensus::ConsensusNodeList> tag_invoke(
                 node.voteWeight.template convert_to<uint64_t>(), 0,
                 boost::lexical_cast<protocol::BlockNumber>(node.enableNumber)};
         }) |
-        RANGES::to<std::vector>();
+        ::ranges::to<std::vector>();
 
-    auto entries =
-        co_await storage2::readSome(storage, RANGES::views::transform(nodes, [](auto const& node) {
+    auto entries = co_await storage2::readSome(
+        storage, ::ranges::views::transform(nodes, [](auto const& node) {
             std::string_view extraKey{node.nodeID->constData(), node.nodeID->size()};
             return executor_v1::StateKeyView{SYS_CONSENSUS, extraKey};
         }));
-    for (auto&& [node, entry] : RANGES::views::zip(nodes, entries))
+    for (auto&& [node, entry] : ::ranges::views::zip(nodes, entries))
     {
         if (entry)
         {
@@ -308,24 +432,25 @@ task::Task<consensus::ConsensusNodeList> tag_invoke(
     co_return nodes;
 }
 
-task::Task<void> tag_invoke(ledger::tag_t<setNodeList> /*unused*/, auto& storage,
+task::Task<void> tag_invoke(ledger::tag_t<setNodeList> /*unused*/,
+    storage2::ReadableStorage<executor_v1::StateKey> auto& storage,
     ::ranges::input_range auto&& nodeList, bool forceSet = false)
 {
     LEDGER_LOG(DEBUG) << "SetNodeList request";
-    auto ledgerNodeList = RANGES::views::transform(nodeList, [&](auto const& node) {
+    auto ledgerNodeList = ::ranges::views::transform(nodeList, [&](auto const& node) {
         ledger::ConsensusNode ledgerNode{.nodeID = node.nodeID->hex(),
             .voteWeight = node.voteWeight,
             .type = std::string(magic_enum::enum_name(node.type)),
             .enableNumber = boost::lexical_cast<std::string>(node.enableNumber)};
         return ledgerNode;
-    }) | RANGES::to<std::vector>();
+    }) | ::ranges::to<std::vector>();
     auto nodeListEntry = encodeConsensusList(ledgerNodeList);
     co_await storage2::writeOne(storage, executor_v1::StateKey{SYS_CONSENSUS, "key"},
         storage::Entry(std::move(nodeListEntry)));
 
-    auto tarsNodeList = RANGES::views::filter(nodeList, [&](auto const& node) {
+    auto tarsNodeList = ::ranges::views::filter(nodeList, [&](auto const& node) {
         return forceSet || node.termWeight > 0;
-    }) | RANGES::views::transform([](auto const& node) {
+    }) | ::ranges::views::transform([](auto const& node) {
         bcostars::ConsensusNode tarsConsensusNode;
         tarsConsensusNode.nodeID.assign(
             node.nodeID->constData(), node.nodeID->constData() + node.nodeID->size());
@@ -334,11 +459,11 @@ task::Task<void> tag_invoke(ledger::tag_t<setNodeList> /*unused*/, auto& storage
         tarsConsensusNode.termWeight = node.termWeight;
         tarsConsensusNode.enableNumber = node.enableNumber;
         return tarsConsensusNode;
-    }) | RANGES::to<std::vector>();
+    }) | ::ranges::to<std::vector>();
     if (!tarsNodeList.empty())
     {
         co_await storage2::writeSome(
-            storage, RANGES::views::transform(tarsNodeList, [](auto const& node) {
+            storage, ::ranges::views::transform(tarsNodeList, [](auto const& node) {
                 bytes data;
                 concepts::serialize::encode(node, data);
                 return std::make_tuple(
@@ -350,8 +475,8 @@ task::Task<void> tag_invoke(ledger::tag_t<setNodeList> /*unused*/, auto& storage
     LEDGER_LOG(DEBUG) << "SetNodeList success" << LOG_KV("nodeList size", nodeList.size());
 }
 
-task::Task<std::optional<SystemConfigEntry>> tag_invoke(
-    ledger::tag_t<getSystemConfig> /*unused*/, auto& storage, std::string_view key)
+task::Task<std::optional<SystemConfigEntry>> tag_invoke(ledger::tag_t<getSystemConfig> /*unused*/,
+    storage2::ReadableStorage<executor_v1::StateKey> auto& storage, std::string_view key)
 {
     if (auto entry =
             co_await storage2::readOne(storage, executor_v1::StateKeyView(SYS_CONFIG, key)))

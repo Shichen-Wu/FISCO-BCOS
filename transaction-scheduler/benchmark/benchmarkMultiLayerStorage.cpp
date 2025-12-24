@@ -1,26 +1,25 @@
 #include "bcos-framework/transaction-executor/StateKey.h"
 #include <bcos-framework/storage2/MemoryStorage.h>
-#include <bcos-framework/transaction-executor/TransactionExecutor.h>
+#include <bcos-framework/storage2/MultiLayerStorage.h>
 #include <bcos-task/Wait.h>
-#include <bcos-transaction-scheduler/MultiLayerStorage.h>
 #include <benchmark/benchmark.h>
 #include <fmt/format.h>
 
 using namespace bcos;
 using namespace bcos::storage2::memory_storage;
-using namespace bcos::scheduler_v1;
+using namespace bcos::storage2;
 
 using namespace std::string_view_literals;
 
 struct Fixture
 {
-    Fixture() : multiLayerStorage(m_backendStorage) {}
+    Fixture() : multiLayerStorage(m_backendStorage) {};
 
     void prepareData(int64_t count, int layer = 0)
     {
         // Write count data
         task::syncWait([this](int64_t count) -> task::Task<void> {
-            auto view = fork(multiLayerStorage);
+            auto view = multiLayerStorage.fork();
             view.newMutable();
             allKeys = RANGES::views::iota(0, count) | RANGES::views::transform([](int num) {
                 auto key = fmt::format("key: {}", num);
@@ -35,14 +34,14 @@ struct Fixture
             });
 
             co_await storage2::writeSome(view, ::ranges::views::zip(allKeys, allValues));
-            pushView(multiLayerStorage, std::move(view));
+            multiLayerStorage.pushView(std::move(view));
         }(count));
 
         for (auto i = 0; i < layer; ++i)
         {
-            auto view = fork(multiLayerStorage);
+            auto view = multiLayerStorage.fork();
             view.newMutable();
-            pushView(multiLayerStorage, std::move(view));
+            multiLayerStorage.pushView(std::move(view));
         }
     }
 
@@ -52,7 +51,7 @@ struct Fixture
         Attribute(ORDERED | CONCURRENT), std::hash<executor_v1::StateKey>>;
 
     BackendStorage m_backendStorage;
-    MultiLayerStorage<MutableStorage, void, BackendStorage> multiLayerStorage;
+    storage2::MultiLayerStorage<MutableStorage, void, BackendStorage> multiLayerStorage;
     std::vector<bcos::executor_v1::StateKey> allKeys;
 };
 
@@ -64,7 +63,7 @@ static void read1(benchmark::State& state)
 
     int i = 0;
     task::syncWait([&](benchmark::State& state) -> task::Task<void> {
-        auto view = fork(fixture.multiLayerStorage);
+        auto view = fixture.multiLayerStorage.fork();
         for (auto const& it : state)
         {
             [[maybe_unused]] auto data =
@@ -84,7 +83,7 @@ static void read10(benchmark::State& state)
 
     int i = 0;
     task::syncWait([&](benchmark::State& state) -> task::Task<void> {
-        auto view = fork(fixture.multiLayerStorage);
+        auto view = fixture.multiLayerStorage.fork();
         for (auto const& it : state)
         {
             [[maybe_unused]] auto data =
@@ -102,7 +101,7 @@ static void write1(benchmark::State& state)
 
     int i = 0;
     task::syncWait([&](benchmark::State& state) -> task::Task<void> {
-        auto view = fork(fixture.multiLayerStorage);
+        auto view = fixture.multiLayerStorage.fork();
         view.newMutable();
         for (auto const& it : state)
         {

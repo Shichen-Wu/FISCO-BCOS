@@ -20,19 +20,17 @@
 
 #pragma once
 
+#include "bcos-framework/front/FrontServiceInterface.h"
+#include "bcos-framework/gateway/GatewayInterface.h"
+#include "bcos-framework/protocol/CommonError.h"
+#include "bcos-gateway/Common.h"
+#include "bcos-gateway/GatewayConfig.h"
+#include "bcos-gateway/gateway/GatewayNodeManager.h"
+#include "bcos-gateway/libamop/AMOPImpl.h"
+#include "bcos-gateway/libp2p/Service.h"
 #include "bcos-gateway/libratelimit/GatewayRateLimiter.h"
+#include "bcos-utilities/BoostLog.h"
 #include "filter/ReadOnlyFilter.h"
-#include <bcos-framework/front/FrontServiceInterface.h>
-#include <bcos-framework/gateway/GatewayInterface.h>
-#include <bcos-framework/protocol/CommonError.h>
-#include <bcos-gateway/Common.h>
-#include <bcos-gateway/GatewayConfig.h>
-#include <bcos-gateway/gateway/GatewayNodeManager.h>
-#include <bcos-gateway/libamop/AMOPImpl.h>
-#include <bcos-gateway/libp2p/Service.h>
-#include <bcos-gateway/libratelimit/RateLimiterManager.h>
-#include <bcos-gateway/libratelimit/RateLimiterStat.h>
-#include <bcos-utilities/BoostLog.h>
 
 
 namespace bcos::gateway
@@ -204,23 +202,8 @@ public:
     Gateway(GatewayConfig::Ptr _gatewayConfig, P2PInterface::Ptr _p2pInterface,
         GatewayNodeManager::Ptr _gatewayNodeManager, bcos::amop::AMOPImpl::Ptr _amop,
         ratelimiter::GatewayRateLimiter::Ptr _gatewayRateLimiter,
-        std::string _gatewayServiceName = "localGateway")
-      : m_gatewayServiceName(std::move(_gatewayServiceName)),
-        m_gatewayConfig(std::move(_gatewayConfig)),
-        m_p2pInterface(std::move(_p2pInterface)),
-        m_gatewayNodeManager(std::move(_gatewayNodeManager)),
-        m_amop(std::move(_amop)),
-        m_gatewayRateLimiter(std::move(_gatewayRateLimiter))
-    {
-        m_p2pInterface->registerHandlerByMsgType(GatewayMessageType::PeerToPeerMessage,
-            boost::bind(&Gateway::onReceiveP2PMessage, this, boost::placeholders::_1,
-                boost::placeholders::_2, boost::placeholders::_3));
-
-        m_p2pInterface->registerHandlerByMsgType(GatewayMessageType::BroadcastMessage,
-            boost::bind(&Gateway::onReceiveBroadcastMessage, this, boost::placeholders::_1,
-                boost::placeholders::_2, boost::placeholders::_3));
-    }
-    ~Gateway() override { stop(); }
+        std::string _gatewayServiceName = "localGateway");
+    ~Gateway() override;
 
     void start() override;
     void stop() override;
@@ -266,17 +249,6 @@ public:
         bcos::crypto::NodeIDPtr _srcNodeID, const bcos::crypto::NodeIDs& _nodeIDs,
         bytesConstRef _payload) override;
 
-    /**
-     * @brief: send broadcast message
-     * @param _groupID: groupID
-     * @param _moduleID: moduleID
-     * @param _srcNodeID: the sender nodeID
-     * @param _payload: message payload
-     * @return void
-     */
-    void asyncSendBroadcastMessage(uint16_t _type, const std::string& _groupID, int _moduleID,
-        bcos::crypto::NodeIDPtr _srcNodeID, bytesConstRef _payload) override;
-
     task::Task<void> broadcastMessage(uint16_t type, std::string_view groupID, int moduleID,
         const bcos::crypto::NodeID& srcNodeID, ::ranges::any_view<bytesConstRef> payloads) override;
 
@@ -293,8 +265,8 @@ public:
         bcos::crypto::NodeIDPtr _srcNodeID, bcos::crypto::NodeIDPtr _dstNodeID,
         bytesConstRef _payload, ErrorRespFunc _errorRespFunc = ErrorRespFunc());
 
-    P2PInterface::Ptr p2pInterface() const { return m_p2pInterface; }
-    GatewayNodeManager::Ptr gatewayNodeManager() { return m_gatewayNodeManager; }
+    P2PInterface::Ptr p2pInterface() const;
+    GatewayNodeManager::Ptr gatewayNodeManager();
     /**
      * @brief receive the latest group information notification from the GroupManagerInterface
      *
@@ -305,66 +277,29 @@ public:
 
     /// for AMOP
     void asyncSendMessageByTopic(const std::string& _topic, bcos::bytesConstRef _data,
-        std::function<void(bcos::Error::Ptr&&, int16_t, bytesConstRef)> _respFunc) override
-    {
-        if (m_amop)
-        {
-            m_amop->asyncSendMessageByTopic(_topic, _data, std::move(_respFunc));
-            return;
-        }
-        _respFunc(BCOS_ERROR_PTR(-1, "AMOP is not initialized"), 0, {});
-    }
+        std::function<void(bcos::Error::Ptr&&, int16_t, bytesConstRef)> _respFunc) override;
     void asyncSendBroadcastMessageByTopic(
-        const std::string& _topic, bcos::bytesConstRef _data) override
-    {
-        if (m_amop)
-        {
-            m_amop->asyncSendBroadcastMessageByTopic(_topic, _data);
-        }
-    }
+        const std::string& _topic, bcos::bytesConstRef _data) override;
 
     void asyncSubscribeTopic(std::string const& _clientID, std::string const& _topicInfo,
-        std::function<void(Error::Ptr&&)> _callback) override
-    {
-        if (m_amop)
-        {
-            m_amop->asyncSubscribeTopic(_clientID, _topicInfo, std::move(_callback));
-            return;
-        }
-        _callback(BCOS_ERROR_PTR(-1, "AMOP is not initialized"));
-    }
+        std::function<void(Error::Ptr&&)> _callback) override;
 
     void asyncRemoveTopic(std::string const& _clientID, std::vector<std::string> const& _topicList,
-        std::function<void(Error::Ptr&&)> _callback) override
-    {
-        if (m_amop)
-        {
-            m_amop->asyncRemoveTopic(_clientID, _topicList, std::move(_callback));
-            return;
-        }
-        _callback(BCOS_ERROR_PTR(-1, "AMOP is not initialized"));
-    }
+        std::function<void(Error::Ptr&&)> _callback) override;
 
-    bcos::amop::AMOPImpl::Ptr amop() { return m_amop; }
+    bcos::amop::AMOPImpl::Ptr amop();
 
     bool registerNode(const std::string& _groupID, bcos::crypto::NodeIDPtr _nodeID,
         bcos::protocol::NodeType _nodeType, bcos::front::FrontServiceInterface::Ptr _frontService,
-        bcos::protocol::ProtocolInfo::ConstPtr _protocolInfo) override
-    {
-        return m_gatewayNodeManager->registerNode(
-            _groupID, _nodeID, _nodeType, _frontService, _protocolInfo);
-    }
+        bcos::protocol::ProtocolInfo::ConstPtr _protocolInfo) override;
 
-    virtual bool unregisterNode(const std::string& _groupID, std::string const& _nodeID)
-    {
-        return m_gatewayNodeManager->unregisterNode(_groupID, _nodeID);
-    }
+    virtual bool unregisterNode(const std::string& _groupID, std::string const& _nodeID);
 
     void enableReadOnlyMode();
 
 protected:
     // for UT
-    Gateway() {}
+    Gateway() = default;
     virtual void onReceiveP2PMessage(
         NetworkException const& _e, P2PSession::Ptr _session, std::shared_ptr<P2PMessage> _msg);
 
@@ -377,7 +312,6 @@ protected:
      */
     virtual void onReceiveBroadcastMessage(
         NetworkException const& _e, P2PSession::Ptr _session, std::shared_ptr<P2PMessage> _msg);
-
 
     bool checkGroupInfo(bcos::group::GroupInfo::Ptr _groupInfo);
 

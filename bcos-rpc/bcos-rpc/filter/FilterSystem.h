@@ -1,15 +1,15 @@
 #pragma once
+#include "bcos-framework/ledger/Ledger.h"
 #include "bcos-ledger/LedgerMethods.h"
-#include <bcos-framework/protocol/ProtocolTypeDef.h>
-#include <bcos-rpc/filter/Filter.h>
-#include <bcos-rpc/filter/LogMatcher.h>
-#include <bcos-rpc/groupmgr/GroupManager.h>
-#include <bcos-rpc/groupmgr/NodeService.h>
-#include <bcos-task/Task.h>
-#include <bcos-task/Wait.h>
-#include <bcos-utilities/BucketMap.h>
-#include <bcos-utilities/Common.h>
-#include <bcos-utilities/Timer.h>
+#include "bcos-rpc/filter/Filter.h"
+#include "bcos-rpc/filter/LogMatcher.h"
+#include "bcos-rpc/groupmgr/GroupManager.h"
+#include "bcos-rpc/groupmgr/NodeService.h"
+#include "bcos-task/Task.h"
+#include "bcos-task/Wait.h"
+#include "bcos-utilities/BucketMap.h"
+#include "bcos-utilities/Common.h"
+#include "bcos-utilities/Timer.h"
 #include <boost/functional/hash.hpp>
 #include <functional>
 #include <memory>
@@ -122,6 +122,7 @@ public:
     FilterRequestFactory::Ptr requestFactory() const { return m_factory; }
     LogMatcher::Ptr matcher() const { return m_matcher; }
     NodeService::Ptr getNodeService(std::string_view _groupID, std::string_view _command) const;
+    void cleanUpExpiredFilters();
 
 protected:
     bool uninstallFilterImpl(std::string_view groupId, u256 filterID)
@@ -146,7 +147,6 @@ protected:
 
     virtual int32_t InvalidParamsCode() = 0;
     uint64_t insertFilter(Filter::Ptr filter);
-    void cleanUpExpiredFilters();
 
     Filter::Ptr getFilterByID(std::string_view groupId, u256 id)
     {

@@ -9,7 +9,7 @@
 #include <boost/throw_exception.hpp>
 #include <array>
 #include <bitset>
-#include <magic_enum.hpp>
+#include <magic_enum/magic_enum.hpp>
 namespace bcos::ledger
 {
 DERIVE_BCOS_EXCEPTION(NoSuchFeatureError);
@@ -49,6 +49,9 @@ public:
         bugfix_precompiled_gascalc,
         bugfix_method_auth_sender,
         bugfix_precompiled_evm_status,
+        bugfix_delegatecall_transfer,
+        bugfix_nonce_initialize,
+        bugfix_v1_timestamp,
         feature_dmc2serial,
         feature_sharding,
         feature_rpbft,
@@ -267,10 +270,14 @@ public:
                 {.to = protocol::BlockVersion::V3_15_1_VERSION,
                     .flags = {Flag::bugfix_precompiled_gascalc}},
                 {.to = protocol::BlockVersion::V3_15_2_VERSION,
-                    .flags = {
-                        Flag::bugfix_method_auth_sender,
-                        Flag::bugfix_precompiled_evm_status,
-                    }}});
+                    .flags =
+                        {
+                            Flag::bugfix_method_auth_sender,
+                            Flag::bugfix_precompiled_evm_status,
+                        }},
+                {.to = protocol::BlockVersion::V3_16_0_VERSION,
+                    .flags = {Flag::bugfix_delegatecall_transfer, Flag::bugfix_nonce_initialize,
+                        Flag::bugfix_v1_timestamp}}});
         for (const auto& upgradeFeatures : upgradeRoadmap)
         {
             if (((toVersion < protocol::BlockVersion::V3_2_7_VERSION) &&
@@ -322,7 +329,8 @@ public:
                });
     }
 
-    task::Task<void> readFromStorage(auto& storage, long blockNumber)
+    task::Task<void> readFromStorage(
+        storage2::ReadableStorage<executor_v1::StateKeyView> auto& storage, long blockNumber)
     {
         for (auto key : bcos::ledger::Features::featureKeys())
         {
@@ -340,7 +348,8 @@ public:
     }
 
     task::Task<void> writeToStorage(
-        auto& storage, long blockNumber, bool ignoreDuplicate = true) const
+        storage2::WritableStorage<executor_v1::StateKey, executor_v1::StateValue> auto& storage,
+        long blockNumber, bool ignoreDuplicate = true) const
     {
         for (auto [flag, name, value] : flags())
         {
@@ -358,7 +367,8 @@ public:
     }
 };
 
-inline task::Task<void> readFromStorage(Features& features, auto&& storage, long blockNumber)
+inline task::Task<void> readFromStorage(Features& features,
+    storage2::ReadableStorage<executor_v1::StateKey> auto& storage, long blockNumber)
 {
     decltype(auto) keys = bcos::ledger::Features::featureKeys();
     auto entries = co_await storage2::readSome(std::forward<decltype(storage)>(storage),
@@ -378,7 +388,9 @@ inline task::Task<void> readFromStorage(Features& features, auto&& storage, long
     }
 }
 
-inline task::Task<void> writeToStorage(Features const& features, auto&& storage, long blockNumber)
+inline task::Task<void> writeToStorage(Features const& features,
+    storage2::WritableStorage<executor_v1::StateKey, executor_v1::StateValue> auto& storage,
+    long blockNumber)
 {
     decltype(auto) flags =
         features.flags() | ::ranges::views::filter([](auto&& tuple) { return std::get<2>(tuple); });

@@ -29,7 +29,6 @@
 #include "bcos-codec/abi/ContractABICodec.h"
 #include "bcos-crypto/interfaces/crypto/Hash.h"
 #include "bcos-executor/src/Common.h"
-#include "bcos-framework/ledger/Account.h"
 #include "bcos-framework/ledger/EVMAccount.h"
 #include "bcos-framework/ledger/Features.h"
 #include "bcos-framework/ledger/Ledger.h"
@@ -59,7 +58,6 @@
 #include <functional>
 #include <intx/intx.hpp>
 #include <iterator>
-#include <magic_enum.hpp>
 #include <memory>
 #include <string_view>
 
@@ -106,7 +104,7 @@ task::Task<std::shared_ptr<Executable>> getExecutable(
     }
 
     if (Account<std::decay_t<decltype(storage)>> account(storage, address, binaryAddress);
-        auto codeEntry = co_await ledger::account::code(account))
+        auto codeEntry = co_await account.code())
     {
         auto executable = std::make_shared<Executable>(std::move(*codeEntry), revision);
         co_await storage2::writeOne(getCacheExecutables(), address, executable);
@@ -156,24 +154,24 @@ private:
 
         auto value = fromEvmC(message.value);
         auto senderAccount = getAccount(*this, message.sender);
-        auto fromBalance = co_await ledger::account::balance(senderAccount);
+        auto fromBalance = co_await senderAccount.balance();
 
         if (fromBalance < value)
         {
             HOST_CONTEXT_LOG(DEBUG) << m_blockHeader.get().number() << " "
                                     << LOG_BADGE("AccountPrecompiled, subAccountBalance")
                                     << LOG_DESC("account balance not enough");
-            BOOST_THROW_EXCEPTION(protocol::NotEnoughCashError("Account balance is not enough!"));
+            BOOST_THROW_EXCEPTION(protocol::NotEnoughCashError{} << errinfo_comment("Account balance is not enough!"));
         }
 
-        if (!co_await ledger::account::exists(m_recipientAccount))
+        if (!co_await m_recipientAccount.exists())
         {
-            co_await ledger::account::create(m_recipientAccount);
+            co_await m_recipientAccount.create();
         }
 
-        auto toBalance = co_await ledger::account::balance(m_recipientAccount);
-        co_await ledger::account::setBalance(senderAccount, fromBalance - value);
-        co_await ledger::account::setBalance(m_recipientAccount, toBalance + value);
+        auto toBalance = co_await m_recipientAccount.balance();
+        co_await senderAccount.setBalance(fromBalance - value);
+        co_await m_recipientAccount.setBalance(toBalance + value);
     }
 
     constexpr static struct InnerConstructor
@@ -239,26 +237,26 @@ public:
 
     task::Task<evmc_bytes32> get(const evmc_bytes32* key, auto&&... /*unused*/)
     {
-        co_return co_await ledger::account::storage(m_recipientAccount, *key);
+        co_return co_await m_recipientAccount.storage(*key);
     }
 
     task::Task<void> set(const evmc_bytes32* key, const evmc_bytes32* value, auto&&... /*unused*/)
     {
-        co_await ledger::account::setStorage(m_recipientAccount, *key, *value);
+        co_await m_recipientAccount.setStorage(*key, *value);
     }
 
     task::Task<u256> balance(evmc_address addr, auto&&... /*unused*/)
     {
         auto account = getAccount(*this, addr);
-        co_return co_await ledger::account::balance(account);
+        co_return co_await account.balance();
     }
 
     task::Task<evmc_bytes32> getTransientStorage(const evmc_bytes32* key, auto&&... /*unused*/)
     {
         evmc_bytes32 value;
         if (auto valueEntry = co_await storage2::readOne(m_rollbackableTransientStorage.get(),
-                executor_v1::StateKeyView{concepts::bytebuffer::toView(
-                                              co_await ledger::account::path(m_recipientAccount)),
+                executor_v1::StateKeyView{
+                    concepts::bytebuffer::toView(co_await m_recipientAccount.path()),
                     concepts::bytebuffer::toView(key->bytes)}))
         {
             auto field = valueEntry->get();
@@ -278,8 +276,7 @@ public:
         const evmc_bytes32* key, const evmc_bytes32* value, auto&&... /*unused*/)
     {
         storage::Entry valueEntry(concepts::bytebuffer::toView(value->bytes));
-        StateKey stateKey{
-            concepts::bytebuffer::toView(co_await ledger::account::path(m_recipientAccount)),
+        StateKey stateKey{concepts::bytebuffer::toView(co_await m_recipientAccount.path()),
             concepts::bytebuffer::toView(key->bytes)};
         HOST_CONTEXT_LOG(TRACE) << "setTransientStorage:"
                                 << LOG_KV("key", concepts::bytebuffer::toView(key->bytes));
@@ -318,12 +315,12 @@ public:
     {
         Account<Storage> account(m_rollbackableStorage.get(), address,
             m_ledgerConfig.get().features().get(ledger::Features::Flag::feature_raw_address));
-        co_return co_await ledger::account::codeHash(account);
+        co_return co_await account.codeHash();
     }
 
     task::Task<bool> exists([[maybe_unused]] const evmc_address& address, auto&&... /*unused*/)
     {
-        // TODO: impl the full suport for solidity
+        // TODO: impl the full support for solidity
         co_return true;
     }
 
@@ -342,7 +339,17 @@ public:
     }
     int64_t blockNumber() const { return m_blockHeader.get().number(); }
     uint32_t blockVersion() const { return m_blockHeader.get().version(); }
-    int64_t timestamp() const { return m_blockHeader.get().timestamp(); }
+    int64_t timestamp() const
+    {
+        if (m_ledgerConfig.get().features().get(ledger::Features::Flag::bugfix_v1_timestamp) &&
+            m_ledgerConfig.get().features().get(ledger::Features::Flag::feature_evm_timestamp))
+        {
+            return std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::milliseconds(m_blockHeader.get().timestamp()))
+                .count();
+        }
+        return m_blockHeader.get().timestamp();
+    }
     evmc_address const& origin() const { return m_origin; }
     int64_t blockGasLimit() const { return std::get<0>(m_ledgerConfig.get().gasLimit()); }
     u256 gasPrice() const { return u256(std::get<0>(m_ledgerConfig.get().gasPrice())); }
@@ -406,11 +413,26 @@ public:
             {
                 // 先转账，再执行
                 // Transfer first, then proceed execute
-                if (!::ranges::equal(ref->value.bytes, executor::EMPTY_EVM_BYTES32.bytes) &&
-                    m_ledgerConfig.get().balanceTransfer())
+                if (m_ledgerConfig.get().features().get(
+                        ledger::Features::Flag::bugfix_delegatecall_transfer))
                 {
-                    co_await transferBalance(*ref);
+                    if (((ref->kind == EVMC_CALL && (ref->flags & EVMC_STATIC) == 0) ||
+                            (ref->kind == EVMC_CREATE) || ref->kind == EVMC_CREATE2) &&
+                        !::ranges::equal(ref->value.bytes, executor::EMPTY_EVM_BYTES32.bytes) &&
+                        m_ledgerConfig.get().balanceTransfer())
+                    {
+                        co_await transferBalance(*ref);
+                    }
                 }
+                else
+                {
+                    if (!::ranges::equal(ref->value.bytes, executor::EMPTY_EVM_BYTES32.bytes) &&
+                        m_ledgerConfig.get().balanceTransfer())
+                    {
+                        co_await transferBalance(*ref);
+                    }
+                }
+
 
                 if (ref->kind == EVMC_CREATE || ref->kind == EVMC_CREATE2)
                 {
@@ -492,7 +514,8 @@ public:
         ++m_seq;
         HOST_CONTEXT_LOG(TRACE) << "External call, seq: " << m_seq;
         auto senderAccount = getAccount(*this, message.sender);
-        auto nonceStr = co_await ledger::account::nonce(senderAccount);
+
+        auto nonceStr = co_await senderAccount.nonce();
         auto nonce = u256(nonceStr.value_or(std::string("0")));
         HostContext hostcontext(innerConstructor, m_rollbackableStorage.get(),
             m_rollbackableTransientStorage.get(), m_blockHeader, message, m_origin, {}, m_contextID,
@@ -526,26 +549,34 @@ private:
         if (m_blockHeader.get().number() != 0)
         {
             co_await createAuthTable(m_rollbackableStorage.get(), m_blockHeader, ref, m_origin,
-                co_await ledger::account::path(m_recipientAccount), buildLegacyExternalCaller(),
+                co_await m_recipientAccount.path(), buildLegacyExternalCaller(),
                 m_precompiledManager.get(), m_contextID, m_seq, m_ledgerConfig);
         }
 
         if (m_web3Tx && m_level != 0)
         {
             auto senderAccount = getAccount(*this, ref.sender);
-            co_await ledger::account::increaseNonce(senderAccount);
+            co_await senderAccount.increaseNonce();
         }
 
-        co_await ledger::account::create(m_recipientAccount);
+        co_await m_recipientAccount.create();
+        auto bugfixNest =
+            m_ledgerConfig.get().features().get(ledger::Features::Flag::bugfix_nonce_initialize);
+        if (bugfixNest)
+        {
+            co_await m_recipientAccount.setNonce("1");
+        }
         auto result = m_executable->m_vmInstance.execute(
             interface, this, m_revision, std::addressof(ref), ref.input_data, ref.input_size);
         if (result.status_code == 0)
         {
             auto code = bytesConstRef(result.output_data, result.output_size);
             auto codeHash = m_hashImpl.get().hash(code);
-            co_await ledger::account::setCode(
-                m_recipientAccount, code.toBytes(), std::string(m_abi), codeHash);
-            co_await ledger::account::setNonce(m_recipientAccount, "1");
+            co_await m_recipientAccount.setCode(code.toBytes(), std::string(m_abi), codeHash);
+            if (!bugfixNest)
+            {
+                co_await m_recipientAccount.setNonce("1");
+            }
             result.gas_left -= result.output_size * bcos::executor::VMSchedule().createDataGas;
             result.create_address = ref.code_address;
 

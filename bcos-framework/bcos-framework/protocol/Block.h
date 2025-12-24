@@ -63,14 +63,8 @@ public:
     virtual void setVersion(int32_t _version) = 0;
     virtual BlockType blockType() const = 0;
     // blockHeader gets blockHeader
-    virtual BlockHeader::ConstPtr blockHeaderConst() const = 0;
+    virtual AnyBlockHeader blockHeader() const = 0;
     virtual BlockHeader::Ptr blockHeader() = 0;
-    // get transactions
-    virtual Transaction::ConstPtr transaction(uint64_t _index) const = 0;
-    // get receipts
-    virtual TransactionReceipt::ConstPtr receipt(uint64_t _index) const = 0;
-    // get transaction metaData
-    virtual TransactionMetaData::ConstPtr transactionMetaData(uint64_t _index) const = 0;
     // get transaction hash
     virtual bcos::crypto::HashType transactionHash(uint64_t _index) const = 0;
 
@@ -97,29 +91,21 @@ public:
     virtual uint64_t receiptsSize() const = 0;
 
     // for nonceList
-    virtual void setNonceList(RANGES::any_view<std::string> nonces) = 0;
-    virtual RANGES::any_view<std::string> nonceList() const = 0;
-
-    virtual NonceListPtr nonces() const
-    {
-        return std::make_shared<NonceList>(
-            RANGES::iota_view<size_t, size_t>(0LU, transactionsSize()) |
-            RANGES::views::transform([this](uint64_t index) {
-                auto transaction = this->transaction(index);
-                return transaction->nonce();
-            }) |
-            RANGES::to<NonceList>());
-    }
+    virtual void setNonceList(::ranges::any_view<std::string> nonces) = 0;
+    virtual ::ranges::any_view<std::string> nonceList() const = 0;
 
     virtual ViewResult<crypto::HashType> transactionHashes() const = 0;
-    virtual ViewResult<std::unique_ptr<TransactionMetaData>> transactionMetaDatas() const = 0;
-    virtual ViewResult<std::unique_ptr<Transaction>> transactions() const = 0;
-    virtual ViewResult<std::unique_ptr<TransactionReceipt>> receipts() const = 0;
+    virtual ViewResult<AnyTransactionMetaData> transactionMetaDatas() const = 0;
+    virtual ViewResult<AnyTransaction> transactions() const = 0;
+    virtual ViewResult<AnyTransactionReceipt> receipts() const = 0;
     bool operator<(const Block& block) const
     {
-        return blockHeaderConst()->number() < block.blockHeaderConst()->number();
+        return blockHeader()->number() < block.blockHeader()->number();
     }
     virtual size_t size() const = 0;
+
+    virtual bcos::bytesConstRef logsBloom() const = 0;
+    virtual void setLogsBloom(bcos::bytesConstRef logsBloom) = 0;
 };
 using Blocks = std::vector<Block::Ptr>;
 using BlocksPtr = std::shared_ptr<Blocks>;

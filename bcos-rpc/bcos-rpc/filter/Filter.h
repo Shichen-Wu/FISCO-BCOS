@@ -1,13 +1,11 @@
 #pragma once
 
+#include "bcos-framework/protocol/ProtocolTypeDef.h"
+#include "bcos-rpc/filter/Common.h"
+#include "bcos-rpc/filter/FilterRequest.h"
+#include "bcos-utilities/Common.h"
 #include <boost/asio.hpp>
 #include <memory>
-#include <vector>
-
-#include <bcos-framework/protocol/ProtocolTypeDef.h>
-#include <bcos-rpc/filter/Common.h>
-#include <bcos-rpc/filter/FilterRequest.h>
-#include <bcos-utilities/Common.h>
 
 namespace bcos
 {
@@ -29,7 +27,7 @@ public:
         m_lastAccessTime(utcTime()),
         m_group(group)
     {
-        if (!params->fromIsLatest() && params->fromBlock() >= 0)
+        if (params && !params->fromIsLatest() && params->fromBlock() >= 0)
         {
             m_startBlockNumber = params->fromBlock();
         }

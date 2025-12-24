@@ -3,14 +3,12 @@
  *  @date 20181112
  */
 
-#include <bcos-gateway/Gateway.h>
-#include <bcos-gateway/libnetwork/ASIOInterface.h>
-#include <bcos-gateway/libnetwork/Host.h>
-#include <bcos-gateway/libp2p/P2PMessage.h>
-#include <bcos-gateway/libp2p/P2PSession.h>
-#include <bcos-gateway/libp2p/Service.h>
-
-#include <bcos-utilities/Common.h>
+#include "bcos-gateway/libp2p/P2PSession.h"
+#include "bcos-gateway/libnetwork/ASIOInterface.h"
+#include "bcos-gateway/libp2p/Common.h"
+#include "bcos-gateway/libp2p/P2PMessage.h"
+#include "bcos-gateway/libp2p/Service.h"
+#include "bcos-utilities/Common.h"
 #include <boost/algorithm/string.hpp>
 
 using namespace bcos;
@@ -131,5 +129,5 @@ bcos::task::Task<Message::Ptr> P2PSession::fastSendP2PMessage(
     // reset message using original long nodeID or short nodeID according to the protocol version
     // Note: m_protocolInfo be setted when create P2PSession
     service->resetP2pID(message, (ProtocolVersion)m_protocolInfo->version());
-    co_return co_await m_session->fastSendMessage(message, payloads, options);
+    co_return co_await m_session->fastSendMessage(message, std::move(payloads), options);
 }

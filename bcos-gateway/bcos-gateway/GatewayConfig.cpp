@@ -3,21 +3,19 @@
  *  @date 2021-05-19
  */
 
+#include "bcos-gateway/GatewayConfig.h"
+#include "bcos-crypto/hash/Keccak256.h"
+#include "bcos-framework/protocol/Protocol.h"
 #include "bcos-gateway/Common.h"
+#include "bcos-security/bcos-security/BcosKms.h"
 #include "bcos-utilities/BoostLog.h"
 #include "bcos-utilities/Common.h"
-#include <bcos-crypto/hash/Keccak256.h>
-#include <bcos-framework/protocol/Protocol.h>
-#include <bcos-gateway/GatewayConfig.h>
-#include <bcos-security/bcos-security/BcosKms.h>
-#include <bcos-utilities/DataConvertUtility.h>
-#include <bcos-utilities/FileUtility.h>
-#include <bcos-utilities/FixedBytes.h>
+#include "bcos-utilities/FileUtility.h"
+#include "bcos-utilities/FixedBytes.h"
 #include <json/json.h>
+#include <boost/regex.hpp>
 #include <boost/throw_exception.hpp>
-#include <algorithm>
 #include <limits>
-#include <regex>
 #include <string>
 #include <vector>
 
@@ -27,7 +25,7 @@ using namespace gateway;
 
 GatewayConfig::GatewayConfig()
 {
-    m_hashImpl = std::make_shared<Keccak256>();
+    m_hashImpl = std::make_shared<crypto::Keccak256>();
 }
 
 bool GatewayConfig::isValidPort(int port)
@@ -54,12 +52,12 @@ int64_t GatewayConfig::doubleMBToBit(double _d)
 
 bool GatewayConfig::isIPAddress(const std::string& _input)
 {
-    const std::regex ipv4_regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}$");
-    const std::regex ipv6_regex(
+    const static boost::regex ipv4_regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}$");
+    const static boost::regex ipv6_regex(
         "^(([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|:|((([0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4})?::("
         "([0-9a-fA-F]{1,4}:){0,6}[0-9a-fA-F]{1,4})?))$");
 
-    return std::regex_match(_input, ipv4_regex) || std::regex_match(_input, ipv6_regex);
+    return boost::regex_match(_input, ipv4_regex) || boost::regex_match(_input, ipv6_regex);
 }
 
 bool GatewayConfig::isHostname(const std::string& _input)
@@ -129,9 +127,8 @@ void GatewayConfig::hostAndPort2Endpoint(const std::string& _host, NodeIPEndpoin
     {
         boost::asio::io_context io_context;
         boost::asio::ip::tcp::resolver resolver(io_context);
-        boost::asio::ip::tcp::resolver::query query(boost::asio::ip::tcp::v4(), ip, "80");
-        boost::asio::ip::tcp::resolver::results_type results = resolver.resolve(query, ec);
-        if (!ec)
+        boost::asio::ip::tcp::resolver::results_type results = resolver.resolve(ip, "80", ec);
+        if (!ec && results.begin() != results.end())
         {
             ip_address = results.begin()->endpoint().address();
         }

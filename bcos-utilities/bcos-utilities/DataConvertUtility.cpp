@@ -17,12 +17,11 @@
  */
 
 #include "DataConvertUtility.h"
-#include <regex>
-
-#include "Exceptions.h"
+#include <boost/regex.hpp>
 
 using namespace std;
 using namespace bcos;
+
 /**
  * @brief: convert the hex char into the hex number
  *
@@ -64,8 +63,8 @@ bool bcos::isHexStringV2(string const& _string)
     {
         return true;
     }
-    std::regex pattern("0x[0-9a-fA-F]*");
-    return std::regex_match(_string, pattern);
+    const static boost::regex pattern("0x[0-9a-fA-F]*");
+    return boost::regex_match(_string, pattern);
 }
 
 std::shared_ptr<bytes> bcos::fromHexString(std::string const& _hexedString)
@@ -131,4 +130,12 @@ bcos::bytes bcos::toBigEndian(u160 _val)
 bcos::bytes bcos::toCompactBigEndian(byte _val, unsigned _min)
 {
     return (_min || _val) ? bytes{_val} : bytes{};
+}
+uint64_t bcos::fromQuantity(std::string const& quantity)
+{
+    return std::stoull(quantity, nullptr, 16);
+}
+bcos::u256 bcos::fromBigQuantity(std::string_view quantity)
+{
+    return hex2u(quantity);
 }

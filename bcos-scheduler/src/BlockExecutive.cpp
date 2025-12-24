@@ -9,7 +9,6 @@
 #include "bcos-framework/protocol/Transaction.h"
 #include "bcos-framework/storage/LegacyStorageMethods.h"
 #include "bcos-table/src/StateStorage.h"
-#include "bcos-tars-protocol/protocol/BlockImpl.h"
 #include "bcos-task/Wait.h"
 #include <bcos-framework/executor/ExecuteError.h>
 #include <bcos-utilities/Error.h>
@@ -21,7 +20,6 @@
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/asio/defer.hpp>
 #include <boost/exception/diagnostic_information.hpp>
-#include <boost/format.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/throw_exception.hpp>
 #include <atomic>
@@ -53,7 +51,7 @@ BlockExecutive::BlockExecutive(bcos::protocol::Block::Ptr block, SchedulerImpl* 
     m_staticCall(staticCall)
 {
     m_hashImpl = m_blockFactory->cryptoSuite()->hashImpl();
-    m_blockHeader = m_block->blockHeaderConst();
+    m_blockHeader = m_block->blockHeader();
     start();
 }
 
@@ -191,27 +189,25 @@ void BlockExecutive::buildExecutivesFromMetaData()
     std::vector<std::tuple<std::string, protocol::ExecutionMessage::UniquePtr, bool>> results(
         m_block->transactionsMetaDataSize());
 
-    auto blockImpl = std::dynamic_pointer_cast<bcostars::protocol::BlockImpl>(m_block);
     if (m_blockTxs)
     {
+        auto transactionMetaDatas = m_block->transactionMetaDatas();
         tbb::parallel_for(tbb::blocked_range<size_t>(0U, m_block->transactionsMetaDataSize()),
             [&](auto const& range) {
                 for (auto i = range.begin(); i < range.end(); ++i)
                 {
-                    auto metaData = blockImpl->transactionMetaDataImpl(i);
-                    // if (metaData)
-                    {
-                        m_executiveResults[i].transactionHash = metaData.hash();
-                        m_executiveResults[i].source = metaData.source();
-                    }
+                    auto metaData = transactionMetaDatas[i];
+                    m_executiveResults[i].transactionHash = metaData->hash();
+                    m_executiveResults[i].source = metaData->source();
                     auto contextID = i + m_startContextID;
 
                     auto& [toAddress, message, enableDAG] = results[i];
                     message = buildMessage(contextID, (*m_blockTxs)[i]);
                     // recoder tx version
                     m_executiveResults[i].version = (*m_blockTxs)[i]->version();
+                    m_executiveResults[i].type = (*m_blockTxs)[i]->type();
                     toAddress = {message->to().data(), message->to().size()};
-                    enableDAG = metaData.attribute() & bcos::protocol::Transaction::Attribute::DAG;
+                    enableDAG = metaData->attribute() & bcos::protocol::Transaction::Attribute::DAG;
                 }
             });
     }
@@ -247,9 +243,11 @@ void BlockExecutive::buildExecutivesFromNormalTransaction()
         tbb::blocked_range<size_t>(0U, m_block->transactionsSize(), 256), [&](auto const& range) {
             for (auto i = range.begin(); i < range.end(); ++i)
             {
-                auto tx = m_block->transaction(i);
+                auto tx = m_block->transactions()[i].toShared();
                 m_executiveResults[i].transactionHash = tx->hash();
                 m_executiveResults[i].version = tx->version();
+                m_executiveResults[i].type = tx->type();
+                m_executiveResults[i].source = tx->sender();
 
                 auto contextID = i + m_startContextID;
                 auto& [to, message, enableDAG] = results[i];
@@ -280,11 +278,8 @@ bcos::protocol::ConstTransactionsPtr BlockExecutive::fetchBlockTxsFromTxPool(
     if (txPool != nullptr)
     {
         // Get tx hash list
-        auto txHashes = std::make_shared<protocol::HashList>();
-        for (size_t i = 0; i < block->transactionsMetaDataSize(); ++i)
-        {
-            txHashes->emplace_back(block->transactionMetaData(i)->hash());
-        }
+        auto txHashes = std::make_shared<protocol::HashList>(
+            ::ranges::to<std::vector>(block->transactionHashes()));
         if (c_fileLogLevel <= TRACE) [[unlikely]]
         {
             for (auto const& tx : *txHashes)
@@ -343,8 +338,8 @@ void BlockExecutive::asyncCall(
                 nullptr);
             return;
         }
-        auto receipt =
-            std::const_pointer_cast<protocol::TransactionReceipt>(executive->block()->receipt(0));
+        auto anyReceipt = executive->block()->receipts()[0];
+        auto receipt = executive->m_blockFactory->receiptFactory()->createReceipt(*anyReceipt);
         callback(std::move(_error), std::move(receipt));
     });
 }
@@ -668,9 +663,11 @@ void BlockExecutive::asyncNotify(
         submitResult->setTxHash(it.transactionHash);
         submitResult->setStatus(it.receipt->status());
         submitResult->setTransactionReceipt(it.receipt);
+        submitResult->setType(it.type);
+        submitResult->setSender(it.source);
         if (m_syncBlock)
         {
-            auto tx = m_block->transaction(index);
+            auto tx = m_block->transactions()[index];
             submitResult->setNonce(std::string(tx->nonce()));
         }
         index++;

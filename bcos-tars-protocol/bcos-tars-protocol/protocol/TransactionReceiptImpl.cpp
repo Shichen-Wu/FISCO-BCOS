@@ -29,6 +29,12 @@ using namespace bcostars::protocol;
 
 DERIVE_BCOS_EXCEPTION(EmptyReceiptHash);
 
+bcostars::protocol::TransactionReceiptImpl::TransactionReceiptImpl()
+  : m_inner([m_receipt = bcostars::TransactionReceipt()]() mutable {
+        return std::addressof(m_receipt);
+    })
+{}
+
 void TransactionReceiptImpl::decode(bcos::bytesConstRef _receiptData)
 {
     bcos::concepts::serialize::decode(_receiptData, *m_inner());
@@ -43,7 +49,7 @@ bcos::crypto::HashType TransactionReceiptImpl::hash() const
 {
     if (m_inner()->dataHash.empty())
     {
-        BOOST_THROW_EXCEPTION(EmptyReceiptHash{});
+        throwTrace(EmptyReceiptHash{});
     }
 
     bcos::crypto::HashType hashResult(
@@ -95,13 +101,13 @@ gsl::span<const bcos::protocol::LogEntry> bcostars::protocol::TransactionReceipt
 
     return {m_logEntries.data(), m_logEntries.size()};
 }
-bcos::protocol::LogEntries&& bcostars::protocol::TransactionReceiptImpl::takeLogEntries()
+bcos::protocol::LogEntries bcostars::protocol::TransactionReceiptImpl::takeLogEntries()
 {
     if (m_logEntries.empty())
     {
-        auto& innter = mutableInner();
-        m_logEntries.reserve(innter.data.logEntries.size());
-        for (auto& it : innter.data.logEntries)
+        auto& data = inner();
+        m_logEntries.reserve(data.data.logEntries.size());
+        for (auto& it : data.data.logEntries)
         {
             auto bcosLogEntry = takeToBcosLogEntry(std::move(it));
             m_logEntries.push_back(std::move(bcosLogEntry));
@@ -126,7 +132,7 @@ const bcostars::TransactionReceipt& bcostars::protocol::TransactionReceiptImpl::
 {
     return *m_inner();
 }
-bcostars::TransactionReceipt& bcostars::protocol::TransactionReceiptImpl::mutableInner()
+bcostars::TransactionReceipt& bcostars::protocol::TransactionReceiptImpl::inner()
 {
     return *m_inner();
 }
@@ -180,3 +186,39 @@ size_t bcostars::protocol::TransactionReceiptImpl::size() const
     size += m_inner()->message.size();
     return size;
 }
+
+bcostars::protocol::TransactionReceiptImpl::TransactionReceiptImpl(
+    std::function<bcostars::TransactionReceipt*()> inner)
+  : m_inner(std::move(inner))
+{}
+
+size_t bcostars::protocol::TransactionReceiptImpl::transactionIndex() const
+{
+    return m_inner()->transactionIndex;
+}
+void bcostars::protocol::TransactionReceiptImpl::setTransactionIndex(size_t index)
+{
+    m_inner()->transactionIndex = index;
+}
+std::string_view bcostars::protocol::TransactionReceiptImpl::cumulativeGasUsed() const
+{
+    return m_inner()->cumulativeGasUsed;
+}
+void bcostars::protocol::TransactionReceiptImpl::setCumulativeGasUsed(std::string cumulativeGasUsed)
+{
+    m_inner()->cumulativeGasUsed = std::move(cumulativeGasUsed);
+}
+bcos::bytesConstRef bcostars::protocol::TransactionReceiptImpl::logsBloom() const
+{
+    auto* inner = m_inner();
+    return {(bcos::byte*)inner->logsBloom.data(), inner->logsBloom.size()};
+}
+void bcostars::protocol::TransactionReceiptImpl::setLogsBloom(bcos::bytesConstRef logsBloom)
+{
+    m_inner()->logsBloom.assign(logsBloom.data(), logsBloom.data() + logsBloom.size());
+}
+size_t bcostars::protocol::TransactionReceiptImpl::logIndex() const
+{
+    return 0;
+}
+void bcostars::protocol::TransactionReceiptImpl::setLogIndex(size_t index) {}

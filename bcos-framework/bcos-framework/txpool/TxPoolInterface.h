@@ -22,9 +22,8 @@
 #include "../protocol/Block.h"
 #include "../protocol/Transaction.h"
 #include "../protocol/TransactionSubmitResult.h"
-#include "TxPoolTypeDef.h"
-#include <bcos-task/Task.h>
-#include <bcos-utilities/Error.h>
+#include "bcos-task/Task.h"
+#include "bcos-utilities/Error.h"
 #include <boost/throw_exception.hpp>
 #include <stdexcept>
 
@@ -48,20 +47,7 @@ public:
      * @return protocol::TransactionSubmitResult::Ptr
      */
     virtual task::Task<protocol::TransactionSubmitResult::Ptr> submitTransaction(
-        [[maybe_unused]] protocol::Transaction::Ptr transaction)
-    {
-        BOOST_THROW_EXCEPTION(std::runtime_error("Unimplemented!"));
-    }
-
-    virtual task::Task<protocol::TransactionSubmitResult::Ptr> submitTransactionWithoutReceipt(
-        [[maybe_unused]] protocol::Transaction::Ptr transaction)
-    {
-        BOOST_THROW_EXCEPTION(std::runtime_error("Unimplemented!"));
-    }
-
-    virtual task::Task<protocol::TransactionSubmitResult::Ptr> submitTransactionWithHook(
-        [[maybe_unused]] protocol::Transaction::Ptr transaction,
-        [[maybe_unused]] std::function<void()> afterInsertHook)
+        [[maybe_unused]] protocol::Transaction::Ptr transaction, bool waitForReceipt)
     {
         BOOST_THROW_EXCEPTION(std::runtime_error("Unimplemented!"));
     }
@@ -84,7 +70,7 @@ public:
     }
 
     virtual task::Task<std::vector<protocol::Transaction::ConstPtr>> getTransactions(
-        RANGES::any_view<bcos::h256, RANGES::category::mask | RANGES::category::sized> hashes)
+        ::ranges::any_view<bcos::h256, ::ranges::category::mask | ::ranges::category::sized> hashes)
     {
         BOOST_THROW_EXCEPTION(std::runtime_error("Unimplemented!"));
     }
@@ -107,8 +93,9 @@ public:
      * @param _sealCallback after the  txpool responds to the sealed txs, the callback is
      * triggered
      */
-    virtual std::tuple<bcos::protocol::Block::Ptr, bcos::protocol::Block::Ptr> sealTxs(
-        uint64_t _txsLimit, TxsHashSetPtr _avoidTxs) = 0;
+    virtual std::tuple<std::vector<protocol::TransactionMetaData::Ptr>,
+        std::vector<protocol::TransactionMetaData::Ptr>>
+    sealTxs(uint64_t _txsLimit) = 0;
 
     virtual void asyncMarkTxs(const bcos::crypto::HashList& _txsHash, bool _sealedFlag,
         bcos::protocol::BlockNumber _batchId, bcos::crypto::HashType const& _batchHash,
@@ -122,7 +109,8 @@ public:
      * @param _onVerifyFinished callback to be called after the block verification is over
      */
     virtual void asyncVerifyBlock(bcos::crypto::PublicPtr _generatedNodeID,
-        bytesConstRef const& _block, std::function<void(Error::Ptr, bool)> _onVerifyFinished) = 0;
+        protocol::Block::ConstPtr _block,
+        std::function<void(Error::Ptr, bool)> _onVerifyFinished) = 0;
 
     /**
      * @brief The dispatcher obtains the transaction list corresponding to the block from the
@@ -168,7 +156,6 @@ public:
 
     // determine to clean up txs periodically or not
     virtual void registerTxsCleanUpSwitch(std::function<bool()>) {}
-    virtual void clearAllTxs() {}
 
     virtual void tryToSyncTxsFromPeers() {}
     virtual void registerTxsNotifier(

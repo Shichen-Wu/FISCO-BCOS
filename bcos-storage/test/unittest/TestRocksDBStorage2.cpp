@@ -3,7 +3,6 @@
 #include "bcos-framework/transaction-executor/StateKey.h"
 #include "bcos-task/Wait.h"
 #include <bcos-framework/storage/Entry.h>
-#include <bcos-framework/transaction-executor/TransactionExecutor.h>
 #include <bcos-storage/RocksDBStorage2.h>
 #include <bcos-storage/StateKVResolver.h>
 #include <fmt/format.h>
@@ -18,21 +17,21 @@ using namespace std::string_view_literals;
 
 struct TestRocksDBStorage2Fixture
 {
+    std::string path = "./rocksdbtestdb" + std::to_string(std::random_device{}());
+
     TestRocksDBStorage2Fixture()
     {
-        constexpr static std::string_view path = "./rocksdbtestdb";
-
         ::rocksdb::Options options;
         options.create_if_missing = true;
 
         rocksdb::DB* db;
-        rocksdb::Status s = rocksdb::DB::Open(options, std::string(path), &db);
+        rocksdb::Status s = rocksdb::DB::Open(options, path, &db);
         BOOST_CHECK_EQUAL(s.ok(), true);
 
         originRocksDB.reset(db);
     }
 
-    ~TestRocksDBStorage2Fixture() { boost::filesystem::remove_all("./rocksdbtestdb"); }
+    ~TestRocksDBStorage2Fixture() { boost::filesystem::remove_all(path); }
     std::unique_ptr<rocksdb::DB> originRocksDB;
 };
 

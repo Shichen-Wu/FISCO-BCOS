@@ -28,7 +28,7 @@
 using namespace bcostars;
 
 void SchedulerServiceClient::call(bcos::protocol::Transaction::Ptr _tx,
-    std::function<void(bcos::Error::Ptr&&, bcos::protocol::TransactionReceipt::Ptr&&)> _callback)
+    std::function<void(bcos::Error::Ptr, bcos::protocol::TransactionReceipt::Ptr)> _callback)
 {
     class Callback : public SchedulerServicePrxCallback
     {
@@ -54,8 +54,7 @@ void SchedulerServiceClient::call(bcos::protocol::Transaction::Ptr _tx,
         }
 
     private:
-        std::function<void(bcos::Error::Ptr&&, bcos::protocol::TransactionReceipt::Ptr&&)>
-            m_callback;
+        std::function<void(bcos::Error::Ptr, bcos::protocol::TransactionReceipt::Ptr)> m_callback;
         bcos::crypto::CryptoSuite::Ptr m_cryptoSuite;
     };
     auto tarsTx = std::dynamic_pointer_cast<bcostars::protocol::TransactionImpl>(_tx);
@@ -124,7 +123,7 @@ void SchedulerServiceClient::getABI(
 
 
 void SchedulerServiceClient::executeBlock(bcos::protocol::Block::Ptr _block, bool _verify,
-    std::function<void(bcos::Error::Ptr&&, bcos::protocol::BlockHeader::Ptr&&, bool)> _callback)
+    std::function<void(bcos::Error::Ptr, bcos::protocol::BlockHeader::Ptr, bool)> _callback)
 {
     class Callback : public SchedulerServicePrxCallback
     {
@@ -160,7 +159,7 @@ void SchedulerServiceClient::executeBlock(bcos::protocol::Block::Ptr _block, boo
 }
 
 void SchedulerServiceClient::commitBlock(bcos::protocol::BlockHeader::Ptr _blockHeader,
-    std::function<void(bcos::Error::Ptr&&, bcos::ledger::LedgerConfig::Ptr&&)> _callback)
+    std::function<void(bcos::Error::Ptr, bcos::ledger::LedgerConfig::Ptr)> _callback)
 {
     class Callback : public SchedulerServicePrxCallback
     {
@@ -195,7 +194,7 @@ void SchedulerServiceClient::commitBlock(bcos::protocol::BlockHeader::Ptr _block
 }
 
 void SchedulerServiceClient::preExecuteBlock(
-    bcos::protocol::Block::Ptr block, bool verify, std::function<void(bcos::Error::Ptr&&)> callback)
+    bcos::protocol::Block::Ptr block, bool verify, std::function<void(bcos::Error::Ptr)> callback)
 {
     class Callback : public SchedulerServicePrxCallback
     {
@@ -218,4 +217,18 @@ void SchedulerServiceClient::preExecuteBlock(
     };
     auto tarsBlock = std::dynamic_pointer_cast<bcostars::protocol::BlockImpl>(block);
     m_prx->async_preExecuteBlock(new Callback(callback), tarsBlock->inner(), verify);
+}
+bcostars::SchedulerServiceClient::SchedulerServiceClient(
+    SchedulerServicePrx _prx, bcos::crypto::CryptoSuite::Ptr _cryptoSuite)
+  : m_prx(_prx), m_cryptoSuite(_cryptoSuite)
+{}
+bcostars::SchedulerServiceClient::~SchedulerServiceClient() {}
+void bcostars::SchedulerServiceClient::status(
+    std::function<void(bcos::Error::Ptr, bcos::protocol::Session::ConstPtr)>)
+{
+    BCOS_LOG(ERROR) << LOG_DESC("unimplemented method status");
+}
+void bcostars::SchedulerServiceClient::reset(std::function<void(bcos::Error::Ptr)>)
+{
+    BCOS_LOG(ERROR) << LOG_DESC("unimplemented method reset");
 }

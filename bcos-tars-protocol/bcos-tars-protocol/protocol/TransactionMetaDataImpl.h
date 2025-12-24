@@ -35,6 +35,10 @@ public:
     TransactionMetaDataImpl(bcos::crypto::HashType hash, std::string to);
     explicit TransactionMetaDataImpl(std::function<bcostars::TransactionMetaData*()> inner);
     ~TransactionMetaDataImpl() override = default;
+    TransactionMetaDataImpl& operator=(const TransactionMetaDataImpl& _txMetaData) = delete;
+    TransactionMetaDataImpl& operator=(TransactionMetaDataImpl&& _txMetaData) = default;
+    TransactionMetaDataImpl(const TransactionMetaDataImpl& _txMetaData) = delete;
+    TransactionMetaDataImpl(TransactionMetaDataImpl&& _txMetaData) = default;
 
     bcos::crypto::HashType hash() const override;
     void setHash(bcos::crypto::HashType _hash) override;

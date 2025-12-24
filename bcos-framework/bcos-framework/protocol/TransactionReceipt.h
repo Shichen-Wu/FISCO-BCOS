@@ -20,6 +20,8 @@
 
 #include "LogEntry.h"
 #include "ProtocolTypeDef.h"
+#include "bcos-utilities/AnyHolder.h"
+#include "bcos-utilities/Common.h"
 #include <bcos-crypto/interfaces/crypto/CryptoSuite.h>
 #include <bcos-utilities/FixedBytes.h>
 #include <gsl/span>
@@ -45,7 +47,7 @@ public:
     virtual int32_t status() const = 0;
     virtual bcos::bytesConstRef output() const = 0;
     virtual gsl::span<const LogEntry> logEntries() const = 0;
-    virtual LogEntries&& takeLogEntries() = 0;
+    virtual LogEntries takeLogEntries() = 0;
     virtual protocol::BlockNumber blockNumber() const = 0;
     virtual std::string_view effectiveGasPrice() const = 0;
     virtual void setEffectiveGasPrice(std::string effectiveGasPrice) = 0;
@@ -55,6 +57,16 @@ public:
     virtual std::string const& message() const = 0;
     virtual void setMessage(std::string message) = 0;
     virtual size_t size() const = 0;
+
+    // Fields after block execution
+    virtual std::string_view cumulativeGasUsed() const = 0;
+    virtual void setCumulativeGasUsed(std::string cumulativeGasUsed) = 0;
+    virtual bcos::bytesConstRef logsBloom() const = 0;
+    virtual void setLogsBloom(bcos::bytesConstRef logsBloom) = 0;
+    virtual size_t transactionIndex() const = 0;
+    virtual void setTransactionIndex(size_t index) = 0;
+    virtual size_t logIndex() const = 0;
+    virtual void setLogIndex(size_t index) = 0;
 
     friend std::ostream& operator<<(std::ostream& output, const TransactionReceipt& receipt)
     {
@@ -74,5 +86,8 @@ public:
 using Receipts = std::vector<TransactionReceipt::Ptr>;
 using ReceiptsPtr = std::shared_ptr<Receipts>;
 using ReceiptsConstPtr = std::shared_ptr<const Receipts>;
+using AnyTransactionReceipt =
+    AnyHolder<TransactionReceipt, 104>;  // 多平台TransactionReceiptImpl的最大尺寸 (Maximum size of
+                                         // TransactionReceiptImpl across platforms)
 
 }  // namespace bcos::protocol
