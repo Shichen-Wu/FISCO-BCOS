@@ -36,6 +36,9 @@ set(PBFT_TARGET "pbft")
 # bcos-rpbft
 set(RPBFT_TARGET "rpbft")
 
+# bcos-mvba
+set(MVBA_TARGET "mvba")
+
 # bcos-storage
 set(STORAGE_TARGET "storage")
 

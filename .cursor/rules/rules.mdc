@@ -1,0 +1,710 @@
+---
+alwaysApply: true
+---
+
+# FISCO-BCOS 项目代码编写规则
+
+本文档总结了FISCO-BCOS项目的代码编写规范和最佳实践，供后续代码开发参考。
+
+## 1. 文件头注释规范
+
+### 1.1 标准文件头格式
+
+所有源文件（.h和.cpp）必须包含标准的Apache 2.0许可证注释：
+
+```cpp
+/**
+ *  Copyright (C) 2021 FISCO BCOS.
+ *  SPDX-License-Identifier: Apache-2.0
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ * @brief 简要描述文件功能
+ * @file 文件名.h
+ * @author: 作者名
+ * @date 日期
+ */
+```
+
+### 1.2 文件头注释字段
+
+- `@brief`: 必须，简要描述文件功能
+- `@file`: 必须，文件名（包含扩展名）
+- `@author`: 必须，作者名
+- `@date`: 必须，日期格式为 YYYY-MM-DD
+
+## 2. 命名规范
+
+### 2.1 类命名
+
+- **类名**: 使用PascalCase（大驼峰），例如：`PBFTEngine`, `MVBAProcessor`, `ConsensusNode`
+- **接口类**: 以`Interface`结尾，例如：`PBFTMessageInterface`, `MVBAMessageInterface`
+- **实现类**: 以`Impl`结尾，例如：`PBFTMessageFactoryImpl`, `MVBAMessageFactoryImpl`
+- **工厂类**: 以`Factory`结尾，例如：`PBFTCacheFactory`, `MVBACacheFactory`
+
+### 2.2 成员变量命名
+
+- **私有成员变量**: 使用`m_`前缀，例如：`m_config`, `m_cacheProcessor`, `m_running`
+- **静态成员变量**: 使用`s_`前缀（如果存在）
+- **成员变量类型**: 优先使用智能指针类型别名
+
+```cpp
+class PBFTEngine {
+private:
+    std::shared_ptr<PBFTConfig> m_config;
+    std::atomic<bool> m_running{false};
+    std::atomic<EpochIndexType> m_currentIndex{0};
+};
+```
+
+### 2.3 函数命名
+
+- **普通函数**: 使用camelCase（小驼峰），例如：`startMVBAInstance()`, `handleMVBAMessage()`
+- **异步函数**: 以`async`开头，例如：`asyncSubmitProposal()`, `asyncSendMessageByNodeID()`
+- **虚函数**: 使用`virtual`关键字，例如：`virtual void start() override;`
+- **回调函数**: 使用`Handler`或`Callback`后缀，例如：`LockNotifyHandler`, `SendResponseCallback`
+
+### 2.4 类型别名命名
+
+- **智能指针别名**: 使用`Ptr`后缀，例如：`using Ptr = std::shared_ptr<PBFTEngine>;`
+- **常量指针**: 使用`ConstPtr`，例如：`using ConstPtr = std::shared_ptr<const PBFTConfig>;`
+- **唯一指针**: 使用`UniquePtr`，例如：`using UniquePtr = std::unique_ptr<Error>;`
+- **列表类型**: 使用`List`后缀，例如：`using PBFTMessageList = std::vector<PBFTMessageInterface::Ptr>;`
+
+### 2.5 枚举命名
+
+- **枚举名**: 使用PascalCase，例如：`PacketType`, `MVBAPacketType`, `CheckResult`
+- **枚举值**: 使用PascalCase，例如：`PrePreparePacket`, `ActivePacket`, `VALID`
+
+### 2.6 常量命名
+
+- **常量**: 使用`constexpr static`或`const static`，全大写+下划线，例如：
+  ```cpp
+  constexpr static uint64_t defaultVoteWeight = 100;
+  constexpr static uint64_t defaultTermWeight = 1;
+  ```
+
+## 3. 代码组织结构
+
+### 3.1 目录结构
+
+项目采用模块化组织，每个模块包含：
+- `interfaces/`: 接口定义
+- `protocol/`: 协议实现（如PB、proto等）
+- `cache/`: 缓存相关
+- `config/`: 配置相关
+- `engine/`: 引擎实现
+- `utilities/`: 工具类和通用函数
+- `test/`: 测试代码
+
+### 3.2 头文件组织
+
+```cpp
+#pragma once  // 必须使用pragma once，不使用include guard
+
+// 1. 标准库头文件
+#include <memory>
+#include <atomic>
+#include <mutex>
+
+// 2. 第三方库头文件
+#include <boost/...>
+
+// 3. 项目框架头文件
+#include <bcos-framework/...>
+#include <bcos-utilities/...>
+
+// 4. 项目内部头文件
+#include "../interfaces/XXXInterface.h"
+#include "../protocol/XXX.h"
+
+namespace bcos::consensus {
+    // 类定义
+}
+```
+
+### 3.3 命名空间
+
+- **主命名空间**: `bcos`
+- **子命名空间**: 按模块划分，例如：`bcos::consensus`, `bcos::crypto`, `bcos::protocol`
+- **使用方式**: 优先使用嵌套命名空间语法 `namespace bcos::consensus {}`
+
+## 4. 智能指针使用规范
+
+### 4.1 智能指针选择
+
+- **共享所有权**: 使用`std::shared_ptr`，通过`Ptr`类型别名
+- **独占所有权**: 使用`std::unique_ptr`，通过`UniquePtr`类型别名
+- **弱引用**: 使用`std::weak_ptr`，避免循环引用
+
+### 4.2 智能指针创建
+
+```cpp
+// 使用make_shared创建
+auto config = std::make_shared<PBFTConfig>(...);
+
+// 使用类型别名
+PBFTConfig::Ptr config = std::make_shared<PBFTConfig>(...);
+
+// 移动语义
+PBFTConfig::Ptr config(std::move(_config));
+```
+
+### 4.3 智能指针传递
+
+- **函数参数**: 按值传递`Ptr`，使用`std::move`避免拷贝
+- **返回值**: 返回`Ptr`类型
+- **弱引用**: 在回调中使用`std::weak_ptr`避免循环引用
+
+```cpp
+void processMessage(MVBAMessageInterface::Ptr _msg);  // 按值传递
+
+MVBAProcessor::Ptr createProcessor();  // 返回Ptr
+
+// 回调中使用weak_ptr
+auto self = weak_from_this();
+m_timer->registerTimeoutHandler([self]() {
+    auto processor = self.lock();
+    if (!processor) return;
+    // ...
+});
+```
+
+## 5. 线程安全规范
+
+### 5.1 互斥锁使用
+
+- **互斥锁命名**: 使用`m_`前缀，例如：`m_mutex`, `m_messageQueueMutex`
+- **读写锁**: 使用`std::shared_mutex`，配合`std::shared_lock`和`std::unique_lock`
+- **锁的作用域**: 使用`{}`限制锁的作用域
+
+```cpp
+class MVBAProcessor {
+private:
+    mutable std::shared_mutex m_mutex;  // mutable允许const函数加锁
+    mutable std::mutex m_messageQueueMutex;
+    
+    void processMessage() {
+        std::unique_lock<std::shared_mutex> lock(m_mutex);
+        // 临界区代码
+    }
+    
+    void readData() const {
+        std::shared_lock<std::shared_mutex> lock(m_mutex);
+        // 只读操作
+    }
+};
+```
+
+### 5.2 原子变量使用
+
+- **原子变量**: 使用`std::atomic`，初始化使用`{}`语法
+- **原子变量命名**: 使用`m_`前缀
+
+```cpp
+std::atomic<bool> m_running{false};
+std::atomic<EpochIndexType> m_currentIndex{0};
+std::atomic<uint64_t> m_totalMessagesReceived{0};
+```
+
+### 5.3 条件变量使用
+
+```cpp
+std::condition_variable m_messageQueueCondition;
+
+// 等待条件
+std::unique_lock<std::mutex> lock(m_messageQueueMutex);
+m_messageQueueCondition.wait(lock, [this]() {
+    return !m_messageQueue.empty() || !m_running;
+});
+
+// 通知
+m_messageQueueCondition.notify_one();
+```
+
+## 6. 错误处理规范
+
+### 6.1 错误类型
+
+使用`bcos::Error`类处理错误：
+
+```cpp
+#include <bcos-utilities/Error.h>
+
+// 创建错误
+Error::Ptr error = BCOS_ERROR_PTR(ErrorCode, "Error message");
+
+// 带前一个错误的错误
+Error::Ptr error = BCOS_ERROR_WITH_PREV_PTR(ErrorCode, "Message", prevError);
+
+// 唯一指针错误
+Error::UniquePtr error = BCOS_ERROR_UNIQUE_PTR(ErrorCode, "Message");
+```
+
+### 6.2 异常处理
+
+- **异常类型**: 使用`DERIVE_BCOS_EXCEPTION`宏定义自定义异常
+- **异常捕获**: 使用`std::exception const&`捕获标准异常
+
+```cpp
+// 定义异常
+DERIVE_BCOS_EXCEPTION(UnknownMVBAMsgType);
+DERIVE_BCOS_EXCEPTION(InitMVBAException);
+
+// 捕获异常
+try {
+    // 代码
+} catch (std::exception const& e) {
+    MVBA_LOG(WARNING) << LOG_DESC("Exception occurred")
+                      << LOG_KV("error", boost::diagnostic_information(e));
+}
+```
+
+### 6.3 错误回调
+
+异步函数使用错误回调：
+
+```cpp
+void asyncFunction(std::function<void(Error::Ptr)> _callback) {
+    if (error) {
+        _callback(BCOS_ERROR_PTR(ErrorCode, "Error message"));
+        return;
+    }
+    _callback(nullptr);  // 成功时传递nullptr
+}
+```
+
+## 7. 日志规范
+
+### 7.1 日志宏定义
+
+每个模块定义自己的日志宏：
+
+```cpp
+// 在utilities/Common.h中定义
+#define PBFT_LOG(LEVEL) BCOS_LOG(LEVEL) << LOG_BADGE("CONSENSUS") << LOG_BADGE("PBFT")
+#define MVBA_LOG(LEVEL) BCOS_LOG(LEVEL) << LOG_BADGE("CONSENSUS") << LOG_BADGE("MVBA")
+```
+
+### 7.2 日志级别
+
+- `TRACE`: 详细跟踪信息
+- `DEBUG`: 调试信息
+- `INFO`: 一般信息
+- `WARNING`: 警告信息
+- `ERROR`: 错误信息
+- `FATAL`: 致命错误
+
+### 7.3 日志格式
+
+使用`LOG_DESC`和`LOG_KV`宏：
+
+```cpp
+PBFT_LOG(INFO) << LOG_DESC("Message description")
+               << LOG_KV("key1", value1)
+               << LOG_KV("key2", value2);
+
+MVBA_LOG(WARNING) << LOG_DESC("Invalid message")
+                  << LOG_KV("packetType", packetType)
+                  << LOG_KV("fromNode", nodeID->hex());
+```
+
+### 7.4 日志最佳实践
+
+- 关键操作必须记录日志
+- 错误和警告必须记录
+- 使用有意义的描述和键值对
+- 避免在循环中记录过多日志
+
+## 8. 接口设计规范
+
+### 8.1 接口类定义
+
+```cpp
+class MVBAMessageInterface : virtual public MVBABaseMessageInterface {
+public:
+    using Ptr = std::shared_ptr<MVBAMessageInterface>;
+    MVBAMessageInterface() = default;
+    virtual ~MVBAMessageInterface() {}
+
+    // 纯虚函数
+    virtual void setMvbaProposal(MVBAProposalInterface::Ptr _mvbaProposal) = 0;
+    virtual MVBAProposalInterface::Ptr mvbaProposal() = 0;
+};
+```
+
+### 8.2 接口实现
+
+```cpp
+class MVBAMessage : public MVBABaseMessage, public MVBAMessageInterface {
+public:
+    using Ptr = std::shared_ptr<MVBAMessage>;
+    
+    void setMvbaProposal(MVBAProposalInterface::Ptr _mvbaProposal) override {
+        m_mvbaProposal = std::move(_mvbaProposal);
+    }
+    
+    MVBAProposalInterface::Ptr mvbaProposal() override {
+        return m_mvbaProposal;
+    }
+};
+```
+
+### 8.3 工厂模式
+
+```cpp
+class MVBAMessageFactory {
+public:
+    using Ptr = std::shared_ptr<MVBAMessageFactory>;
+    
+    virtual MVBAMessageInterface::Ptr createMVBAMessage() = 0;
+    virtual MVBAProposalInterface::Ptr createMVBAProposal() = 0;
+};
+
+class MVBAMessageFactoryImpl : public MVBAMessageFactory {
+public:
+    MVBAMessageInterface::Ptr createMVBAMessage() override {
+        return std::make_shared<MVBAMessage>();
+    }
+};
+```
+
+## 9. 异步编程规范
+
+### 9.1 异步函数签名
+
+```cpp
+void asyncSubmitProposal(
+    bool _containSysTxs,
+    const protocol::Block& proposal,
+    bcos::protocol::BlockNumber _proposalIndex,
+    bcos::crypto::HashType const& _proposalHash,
+    std::function<void(Error::Ptr)> _onProposalSubmitted);
+```
+
+### 9.2 回调函数
+
+- **回调参数**: 错误对象作为第一个参数，成功时为`nullptr`
+- **回调类型**: 使用`std::function`或函数指针
+- **回调命名**: 使用`_on`或`_callback`前缀
+
+```cpp
+using CallbackFunc = std::function<void(
+    Error::Ptr, NodeIDPtr, bytesConstRef, std::string const&, SendResponseCallback)>;
+
+void asyncSendMessageByNodeID(
+    int _moduleID,
+    NodeIDPtr _nodeID,
+    bytesConstRef _data,
+    uint32_t _timeout,
+    CallbackFunc _callbackFunc);
+```
+
+### 9.3 Lambda表达式
+
+```cpp
+// 使用weak_ptr避免循环引用
+auto self = weak_from_this();
+m_timer->registerTimeoutHandler([self]() {
+    auto processor = self.lock();
+    if (!processor) return;
+    processor->onTimeout();
+});
+
+// 捕获错误信息
+catch (std::exception const& e) {
+    MVBA_LOG(WARNING) << LOG_DESC("Exception")
+                      << LOG_KV("error", boost::diagnostic_information(e));
+}
+```
+
+## 10. 内存管理规范
+
+### 10.1 移动语义
+
+优先使用移动语义避免不必要的拷贝：
+
+```cpp
+// 构造函数中使用move
+PBFTConfig::PBFTConfig(
+    CryptoSuite::Ptr _cryptoSuite,
+    KeyPairInterface::Ptr _keyPair,
+    ...)
+  : m_cryptoSuite(std::move(_cryptoSuite)),
+    m_keyPair(std::move(_keyPair))
+{
+}
+
+// 函数参数使用move
+void processMessage(MVBAMessageInterface::Ptr _msg) {
+    m_messageQueue.push(std::move(_msg));
+}
+```
+
+### 10.2 RAII原则
+
+使用RAII管理资源：
+
+```cpp
+class MVBAProcessor {
+public:
+    ~MVBAProcessor() {
+        stop();  // 析构时自动清理
+    }
+    
+    void stop() {
+        m_running = false;
+        // 清理资源
+    }
+};
+```
+
+### 10.3 资源清理
+
+在`stop()`或析构函数中清理资源：
+
+```cpp
+void stop() {
+    m_running = false;
+    
+    // 停止定时器
+    {
+        std::lock_guard<std::mutex> lock(m_timersMutex);
+        for (auto& [index, timer] : m_instanceTimers) {
+            if (timer) timer->stop();
+        }
+    }
+    
+    // 等待线程结束
+    if (m_messageProcessThread.joinable()) {
+        m_messageProcessThread.join();
+    }
+}
+```
+
+## 11. 代码注释规范
+
+### 11.1 函数注释
+
+```cpp
+/**
+ * @brief 启动MVBA实例
+ * @param _index: MVBA实例的索引
+ * @param _input: 混淆证明输入
+ * @param _inputHash: 输入的哈希值
+ * @return void
+ */
+void startMVBAInstance(
+    EpochIndexType _index,
+    EquivocationProof::Ptr _input,
+    bcos::crypto::HashType _inputHash);
+```
+
+### 11.2 复杂逻辑注释
+
+```cpp
+// 检查是否收集到足够的ActiveEcho
+// Quorum计算: observerNodesNum - (observerNodesNum - 1) / 3
+if (m_activeEchoWeight >= m_minRequiredQuorum) {
+    // 进入Lock阶段
+    createLockMessage();
+}
+```
+
+### 11.3 TODO注释
+
+```cpp
+// TODO: 实现消息签名验证
+// TODO: 实现时间戳验证机制
+// TODO: 优化消息广播机制
+```
+
+## 12. 常量定义规范
+
+### 12.1 枚举定义
+
+```cpp
+enum MVBAPacketType : uint32_t {
+    ActivePacket = 0x10,
+    ActiveEchoPacket = 0x11,
+    LockPacket = 0x12,
+    LockEchoPacket = 0x13,
+    FinishPacket = 0x14,
+    NotifyFinishedPacket = 0x15,
+};
+```
+
+### 12.2 常量定义
+
+```cpp
+namespace bcos::consensus {
+    constexpr static uint64_t defaultVoteWeight = 100;
+    constexpr static uint64_t defaultTermWeight = 1;
+}
+```
+
+## 13. 类型定义规范
+
+### 13.1 基础类型别名
+
+```cpp
+using byte = uint8_t;
+using bytes = std::vector<byte>;
+using bytesPointer = std::shared_ptr<std::vector<byte>>;
+using bytesConstRef = RefDataContainer<byte const>;
+```
+
+### 13.2 自定义类型
+
+```cpp
+using EpochIndexType = bcos::protocol::BlockNumber;
+using IndexType = int64_t;
+using RoundType = uint64_t;
+```
+
+## 14. 代码风格规范
+
+### 14.1 缩进和空格
+
+- 使用4个空格缩进（不使用Tab）
+- 操作符前后加空格
+- 逗号后加空格
+
+```cpp
+if (condition) {
+    doSomething();
+}
+
+auto result = a + b;
+std::vector<int> list = {1, 2, 3};
+```
+
+### 14.2 大括号风格
+
+使用K&R风格（开括号不换行）：
+
+```cpp
+if (condition) {
+    // code
+} else {
+    // code
+}
+
+class MyClass {
+public:
+    void method() {
+        // code
+    }
+};
+```
+
+### 14.3 函数参数对齐
+
+长参数列表时，每个参数一行：
+
+```cpp
+void asyncSubmitProposal(
+    bool _containSysTxs,
+    const protocol::Block& proposal,
+    bcos::protocol::BlockNumber _proposalIndex,
+    bcos::crypto::HashType const& _proposalHash,
+    std::function<void(Error::Ptr)> _onProposalSubmitted);
+```
+
+### 14.4 初始化列表
+
+构造函数使用初始化列表：
+
+```cpp
+MVBAProcessor::MVBAProcessor(PBFTConfig::Ptr _config)
+  : m_config(std::move(_config)),
+    m_running(false),
+    m_currentIndex(0)
+{
+}
+```
+
+## 15. 测试代码规范
+
+### 15.1 测试文件命名
+
+- 测试文件以`Test.cpp`结尾
+- 测试文件放在`test/`目录下
+
+### 15.2 测试用例
+
+```cpp
+#include <boost/test/unit_test.hpp>
+
+BOOST_AUTO_TEST_CASE(testMVBAProcessor) {
+    // 测试代码
+    BOOST_CHECK_EQUAL(result, expected);
+}
+```
+
+## 16. 性能优化规范
+
+### 16.1 避免不必要的拷贝
+
+- 使用引用传递大型对象
+- 使用移动语义
+- 使用`const&`传递只读参数
+
+### 16.2 缓存和复用
+
+- 复用对象而非频繁创建
+- 使用对象池管理频繁创建的对象
+
+### 16.3 异步处理
+
+- 使用消息队列异步处理
+- 避免阻塞主线程
+
+## 17. 安全规范
+
+### 17.1 输入验证
+
+```cpp
+bool validateMessage(MVBAMessageInterface::Ptr _msg) {
+    if (!_msg) {
+        return false;
+    }
+    // 验证消息格式、签名等
+    return true;
+}
+```
+
+### 17.2 资源限制
+
+```cpp
+// 限制消息队列大小
+if (m_messageQueue.size() >= m_maxPendingMessages) {
+    MVBA_LOG(WARNING) << LOG_DESC("Message queue full");
+    return;
+}
+```
+
+## 18. 总结
+
+遵循以上规范可以确保代码：
+- **一致性**: 整个项目代码风格统一
+- **可读性**: 代码易于理解和维护
+- **可维护性**: 便于后续扩展和修改
+- **安全性**: 避免常见的内存和线程安全问题
+- **性能**: 优化资源使用和性能表现
+
+---
+
+**文档版本**: 1.0  
+**最后更新**: 2024-12-15  
+**适用范围**: FISCO-BCOS项目所有C++代码
+

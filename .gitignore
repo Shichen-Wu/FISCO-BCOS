@@ -57,7 +57,7 @@ deps/**
 *.pyc
 
 # vcpkg
-vcpkg
+vcpkg*
 
 # clangd file
 compile_commands.json

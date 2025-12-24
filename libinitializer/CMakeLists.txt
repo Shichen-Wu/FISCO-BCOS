@@ -2,6 +2,8 @@ find_package(Boost REQUIRED program_options)
 find_package(jsoncpp CONFIG REQUIRED)
 find_package(tomlplusplus CONFIG REQUIRED)
 
+include_directories(${CMAKE_BINARY_DIR}/bcos-mvba/)
+
 add_library(${COMMAND_HELPER_LIB} CommandHelper.cpp)
 target_link_libraries(${COMMAND_HELPER_LIB} PUBLIC bcos-framework Boost::program_options)
 

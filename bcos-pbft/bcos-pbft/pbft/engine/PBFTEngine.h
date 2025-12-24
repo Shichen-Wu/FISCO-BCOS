@@ -20,6 +20,9 @@
  */
 #pragma once
 #include "PBFTLogSync.h"
+#include "bcos-mvba/bcos-mvba/processor/MVBAProcessor.h"
+#include "bcos-mvba/bcos-mvba/utilities/Common.h"
+#include "bcos-mvba/bcos-mvba/interfaces/MVBAMessageInterface.h"
 #include "bcos-framework/ledger/LedgerInterface.h"
 #include "bcos-pbft/core/ConsensusEngine.h"
 #include <bcos-utilities/Error.h>
@@ -65,6 +68,7 @@ public:
         std::function<void(Error::Ptr)> _onProposalSubmitted);
 
     std::shared_ptr<PBFTConfig> pbftConfig() { return m_config; }
+    MVBAProcessor::Ptr mvbaProcessor() {return m_mvbaProcessor; }
 
     // Receive PBFT message package from frontService
     virtual void onReceivePBFTMessage(bcos::Error::Ptr _error, std::string const& _id,
@@ -201,6 +205,12 @@ protected:
     virtual void onStableCheckPointCommitFailed(
         Error::Ptr&& _error, PBFTProposalInterface::Ptr _stableProposal);
 
+    // 判断消息是否为MVBA消息
+    bool isMVBAMessage(bytesConstRef _data) const;
+    // 处理MVBA消息
+    void onReceiveMVBAMessage(Error::Ptr _error, bcos::crypto::NodeIDPtr _fromNode, bytesConstRef _data);
+
+
 private:
     // utility functions
     void waitSignal()
@@ -219,6 +229,16 @@ protected:
     // PBFT message cache queue
     tbb::concurrent_queue<std::shared_ptr<PBFTBaseMessageInterface>> m_msgQueue;
     std::shared_ptr<PBFTCacheProcessor> m_cacheProcessor;
+
+    // MVBA message processor
+    std::shared_ptr<MVBAProcessor> m_mvbaProcessor;
+    //std::queue<MVBABaseMessageInterface::Ptr> m_mvbaMsgQueue;
+    //mutable std::mutex m_mvbaMsgQueueMutex;
+    //std::condition_variable m_mvbaSignalled;
+    // MVBA消息处理线程相关
+    //std::atomic<bool> m_mvbaProcessorRunning = {false};
+    //ThreadPool::Ptr m_mvbaWorker;
+
     // for log syncing
     PBFTLogSync::Ptr m_logSync;
 

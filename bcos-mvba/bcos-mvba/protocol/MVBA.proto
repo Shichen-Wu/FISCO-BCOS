@@ -1,0 +1,80 @@
+syntax = "proto3";
+package bcos.consensus;
+
+// PBFT 调用 MVBA 的输入数据结构 - 混淆证明
+message RawEquivocationProof {
+    int32 version = 1;
+    repeated int64 maliciousNodeIndexes = 2;    // 恶意节点索引列表
+    repeated bytes mainChainSignatures = 3;  // 主链区块签名集合
+    repeated bytes conflictSignatures = 4;   // 矛盾区块签名集合
+    int64 conflictBlockNumber = 5;              // 冲突区块高度
+    int64 rollbackBlockNumber = 6;              // 回滚区块高度
+    int64 sequentialEpoch = 7;                  // 时序epoch
+    bytes additionalData = 8;                   // 其他附加数据
+}
+
+message MVBARawBaseMessage
+{
+  int32 version = 1;
+  int64 index = 2;
+  // the hash of the proposals or the committed proposal
+  bytes hash = 3;
+  int64 view = 4;
+  int64 timestamp = 5;
+  // the index of the node that generated the request
+  int64 generatedFrom = 6;
+  bytes signatureHash = 7;
+  bytes signatureData = 8;
+}
+
+
+// MVBA提案的格式
+message MVBARawProposal {
+    int64 index = 1;                           // MVBA 轮次
+    int32 round = 2;                           // MVBA 阶段
+    int64 sealerId = 3;                        // 提案发起人
+    RawEquivocationProof mvbaInput = 4;        // 调用MVBA的初始输入值                       
+    
+    //certificate for the MVBA proposal
+    bytes payloadHash = 5;                     // 证书的payload，在active中是mvbaInput的hash值，在lock中是active消息的hash，在finish中是lock的hash
+    repeated int64 nodeList = 6;               // 针对证书的证明节点的列表
+    repeated bytes signatureList = 7;          // 对payload的签名列表
+}
+
+// MVBA提案的响应的格式
+message MVBARawEcho {
+    int64 index = 1;                           // MVBA 轮次
+    int32 round = 2;                           // MVBA 阶段
+    int64 sealerId = 3;                        // 提案发起人
+    bytes payloadHash = 4;                     // 相应的提案的hash值，提案可以是active，也可以是lock消息；会等于MVBARawProposal中的payloadHash
+
+}
+
+
+// MVBA 消息结构
+message MVBARawMessage {
+    bytes hashFieldsData = 1;                  
+    MVBARawProposal mvbaProposal = 2;          // MVBA 提案，消息为相应时该字段为空
+    repeated MVBARawProposal proposals = 3;    // 多个提案（用于批处理，默认为空）
+    MVBARawEcho mvbaEcho = 4;              // MVBA响应签名投票，消息为提案时该字段为空
+    bytes signatureData = 5;
+}
+
+
+message RawMessageMVBA
+{
+  int32 version = 1;
+  int32 type = 2;
+  // used to verify proposal-irrelevant request
+  // eg. ViewChange, NewView requests
+  bytes signatureData = 3;
+  bytes payload = 4;
+}
+
+// MVBA 消息类型枚举（在实际使用中定义）
+// enum MVBAMessageType {
+//     MVBA_BROADCAST = 0;
+//     MVBA_VOTE = 1;
+//     MVBA_DECIDE = 2;
+//     MVBA_AUX = 3;
+// }
