@@ -1,40 +1,55 @@
 /**
  *  Copyright (C) 2026 FISCO BCOS.
  *  SPDX-License-Identifier: Apache-2.0
+ *  Licensed under the Apache License, Version 2.0 (the "License");
+ *  you may not use this file except in compliance with the License.
+ *  You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *  Unless required by applicable law or agreed to in writing, software
+ *  distributed under the License is distributed on an "AS IS" BASIS,
+ *  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *  See the License for the specific language governing permissions and
+ *  limitations under the License.
+ *
+ * @brief jwt verifier
+ * @file JwtVerifier.cpp
+ * @date 2026.05.19
  */
 
 #include "JwtVerifier.h"
 
 namespace bcos::boostssl::jwt
 {
-JwtVerifier::JwtVerifier(JwtVerifyConfig _config) : m_config(std::move(_config)) {}
+JwtVerifier::JwtVerifier(JwtConfig::Ptr _config) : m_config(std::move(_config)) {}
 
-const JwtVerifyConfig& JwtVerifier::config() const
+const JwtConfig& JwtVerifier::config() const
 {
-    return m_config;
+    return *m_config;
 }
 
-JwtVerifyResult JwtVerifier::verify(std::string_view authorizationHeader) const
+JwtVerifyResult JwtVerifier::verify(std::string_view _authorizationHeader) const
 {
-    (void)authorizationHeader;
+    (void)_authorizationHeader;
     return {};
 }
 
-JwtVerifyResult JwtVerifier::verifyToken(std::string_view jwtCompact) const
+JwtVerifyResult JwtVerifier::verifyToken(std::string_view _jwtCompact) const
 {
-    (void)jwtCompact;
+    (void)_jwtCompact;
     return {};
 }
 
-bool JwtVerifier::verifyAlgorithm(std::string_view alg) const
+bool JwtVerifier::verifyAlgorithm(std::string_view _alg) const
 {
-    (void)alg;
+    (void)_alg;
     return true;
 }
 
-bool JwtVerifier::verifyIat(std::optional<int64_t> iat) const
+bool JwtVerifier::verifyIat(std::optional<int64_t> _iat) const
 {
-    (void)iat;
+    (void)_iat;
     return true;
 }
 

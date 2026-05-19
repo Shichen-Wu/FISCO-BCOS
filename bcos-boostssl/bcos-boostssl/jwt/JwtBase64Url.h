@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -28,6 +29,8 @@ namespace bcos::boostssl::jwt
 class JwtBase64Url
 {
 public:
+    using Ptr = std::shared_ptr<JwtBase64Url>;
+
     static std::string encode(std::string_view input);
     static std::string decode(std::string_view input);
 

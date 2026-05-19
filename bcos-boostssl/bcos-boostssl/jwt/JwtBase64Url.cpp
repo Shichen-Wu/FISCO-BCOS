@@ -22,27 +22,27 @@
 
 namespace bcos::boostssl::jwt
 {
-std::string JwtBase64Url::encode(std::string_view input)
+std::string JwtBase64Url::encode(std::string_view _input)
 {
-    (void)input;
+    (void)_input;
     return {};
 }
 
-std::string JwtBase64Url::decode(std::string_view input)
+std::string JwtBase64Url::decode(std::string_view _input)
 {
-    (void)input;
+    (void)_input;
     return {};
 }
 
-bool JwtBase64Url::isBase64UrlChar(char c)
+bool JwtBase64Url::isBase64UrlChar(char _c)
 {
-    (void)c;
+    (void)_c;
     return true;
 }
 
-std::string JwtBase64Url::normalizePadding(std::string_view input)
+std::string JwtBase64Url::normalizePadding(std::string_view _input)
 {
-    (void)input;
+    (void)_input;
     return {};
 }
 }  // namespace bcos::boostssl::jwt

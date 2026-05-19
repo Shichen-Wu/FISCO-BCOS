@@ -22,9 +22,9 @@
 
 namespace bcos::boostssl::jwt
 {
-std::string_view toString(JwtError error)
+std::string_view toString(JwtError _error)
 {
-    switch (error)
+    switch (_error)
     {
     case JwtError::Ok:
         return "ok";

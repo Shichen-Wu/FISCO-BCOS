@@ -49,16 +49,11 @@ public:
     JwtToken() = default;
     JwtToken(JwtHeader _header, JwtClaims _claims, std::string _signature);
 
-    static JwtToken parse(std::string_view jwtCompact);
-    static JwtHeader parseHeader(const Json::Value& json);
-    static JwtClaims parseClaims(const Json::Value& json);
-
     const JwtHeader& header() const;
     const JwtClaims& claims() const;
     const std::string& signature() const;
 
-    bool valid() const;
-    std::string toCompact() const;
+    bool isValid() const;
 
 private:
     JwtHeader m_header;

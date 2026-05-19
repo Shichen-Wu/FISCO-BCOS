@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "JwtConfig.h"
 #include "JwtToken.h"
 #include <memory>
 #include <optional>
@@ -28,13 +29,6 @@
 
 namespace bcos::boostssl::jwt
 {
-struct JwtConfig
-{
-    std::string secretFile;
-    int64_t clockSkewSecs{60};
-    std::string allowedAlgorithms{"HS256"};
-};
-
 struct JwtVerifyResult
 {
     bool ok{false};
@@ -47,7 +41,7 @@ class JwtVerifier
 public:
     using Ptr = std::shared_ptr<JwtVerifier>;
 
-    explicit JwtVerifier(JwtConfig _config);
+    explicit JwtVerifier(JwtConfig::Ptr _config);
     ~JwtVerifier() = default;
 
     const JwtConfig& config() const;
@@ -61,6 +55,6 @@ public:
     std::string readSecret() const;
 
 private:
-    JwtConfig m_config;
+    JwtConfig::Ptr m_config;
 };
 }  // namespace bcos::boostssl::jwt

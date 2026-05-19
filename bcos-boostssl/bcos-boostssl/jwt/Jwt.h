@@ -20,8 +20,8 @@
 
 #pragma once
 
-#include "JwtAuthConfig.h"
 #include "JwtBase64Url.h"
 #include "JwtErrors.h"
+#include "JwtConfig.h"
 #include "JwtToken.h"
 #include "JwtVerifier.h"
