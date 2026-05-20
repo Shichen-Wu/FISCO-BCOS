@@ -45,9 +45,6 @@ public:
     int64_t clockSkewSecs() const { return m_clockSkewSecs; }
     void setClockSkewSecs(int64_t _clockSkewSecs) { m_clockSkewSecs = _clockSkewSecs; }
 
-    const std::string& allowedHosts() const { return m_allowedHosts; }
-    void setAllowedHosts(std::string _allowedHosts) { m_allowedHosts = std::move(_allowedHosts); }
-
     const std::string& allowedAlgorithms() const { return m_allowedAlgorithms; }
     void setAllowedAlgorithms(std::string _allowedAlgorithms)
     {
@@ -58,7 +55,6 @@ private:
     bool m_enableJWT{false};
     std::string m_secretFile;
     int64_t m_clockSkewSecs{60};
-    std::string m_allowedHosts;
     std::string m_allowedAlgorithms{"HS256"};
 };
 }  // namespace bcos::boostssl::jwt

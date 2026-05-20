@@ -21,6 +21,7 @@
 #pragma once
 
 #include "JwtConfig.h"
+#include "JwtErrors.h"
 #include "JwtToken.h"
 #include <memory>
 #include <optional>
@@ -32,8 +33,11 @@ namespace bcos::boostssl::jwt
 struct JwtVerifyResult
 {
     bool ok{false};
+    JwtError error{JwtError::Ok};
     std::string errorMessage;
     JwtToken token;
+
+    explicit operator bool() const { return ok; }
 };
 
 class JwtVerifier
@@ -53,6 +57,8 @@ public:
     bool verifyIat(std::optional<int64_t> iat) const;
 
     std::string readSecret() const;
+    std::string readSecretRaw() const;
+    bool validateSecret(std::string_view secret) const;
 
 private:
     JwtConfig::Ptr m_config;

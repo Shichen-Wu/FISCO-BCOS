@@ -48,6 +48,7 @@ public:
 
     JwtToken() = default;
     JwtToken(JwtHeader _header, JwtClaims _claims, std::string _signature);
+    static std::optional<JwtToken> decode(std::string_view _jwtCompact, std::string& _errorMessage);
 
     const JwtHeader& header() const;
     const JwtClaims& claims() const;

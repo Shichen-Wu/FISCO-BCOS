@@ -20,7 +20,6 @@
 
 #pragma once
 
-#include "JwtBase64Url.h"
 #include "JwtErrors.h"
 #include "JwtConfig.h"
 #include "JwtToken.h"
