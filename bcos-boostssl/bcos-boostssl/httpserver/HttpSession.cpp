@@ -1,5 +1,21 @@
 #include "HttpSession.h"
+#include <json/json.h>
 #include <boost/system/error_code.hpp>
+
+namespace
+{
+bcos::bytes buildJwtErrorResponse(std::string_view _message)
+{
+    Json::Value response;
+    response["code"] = 401;
+    response["message"] = std::string(_message);
+
+    Json::StreamWriterBuilder builder;
+    builder["indentation"] = "";
+    auto output = Json::writeString(builder, response);
+    return bcos::bytes(output.begin(), output.end());
+}
+}  // namespace
 
 bcos::boostssl::http::HttpSession::HttpSession(uint32_t _httpBodySizeLimit, CorsConfig _corsConfig)
   : m_httpBodySizeLimit(_httpBodySizeLimit), m_corsConfig(std::move(_corsConfig))
@@ -150,6 +166,26 @@ void bcos::boostssl::http::HttpSession::handleRequest(const HttpRequest& _httpRe
     }
 
     // handle http request
+    if (m_jwtVerifier)
+    {
+        auto authorization = _httpRequest[boost::beast::http::field::authorization];
+        auto result =
+            m_jwtVerifier->verify(std::string_view(authorization.data(), authorization.size()));
+        if (!result)
+        {
+            HTTP_SESSION(WARNING) << LOG_BADGE("handleRequest")
+                                  << LOG_DESC("jwt verification failed")
+                                  << LOG_KV("error", static_cast<int>(result.error))
+                                  << LOG_KV("message", result.errorMessage);
+
+            auto resp = buildHttpResp(boost::beast::http::status::unauthorized,
+                _httpRequest.keep_alive(), version, buildJwtErrorResponse(result.errorMessage),
+                m_corsConfig);
+            queue().enqueue(std::move(resp));
+            return;
+        }
+    }
+
     if (m_httpReqHandler)
     {
         const std::string& request = _httpRequest.body();
@@ -267,4 +303,14 @@ bcos::boostssl::http::CorsConfig bcos::boostssl::http::HttpSession::corsConfig()
 void bcos::boostssl::http::HttpSession::setCorsConfig(CorsConfig _corsConfig)
 {
     m_corsConfig = std::move(_corsConfig);
+}
+
+bcos::boostssl::jwt::JwtVerifier::Ptr bcos::boostssl::http::HttpSession::jwtVerifier() const
+{
+    return m_jwtVerifier;
+}
+
+void bcos::boostssl::http::HttpSession::setJwtVerifier(jwt::JwtVerifier::Ptr _jwtVerifier)
+{
+    m_jwtVerifier = std::move(_jwtVerifier);
 }

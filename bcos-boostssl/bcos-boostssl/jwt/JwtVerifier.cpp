@@ -50,8 +50,7 @@ JwtVerifyResult makeError(JwtError _error, std::string _message)
 {
     return JwtVerifyResult{false, _error, std::move(_message), {}};
 }
-
-}  // namespace
+}
 
 
 JwtVerifier::JwtVerifier(JwtConfig::Ptr _config) : m_config(std::move(_config)) {}

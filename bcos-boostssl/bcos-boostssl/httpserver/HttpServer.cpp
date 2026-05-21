@@ -223,6 +223,7 @@ HttpSession::Ptr HttpServer::buildHttpSession(
     session->setRequestHandler(m_httpReqHandler);
     session->setWsUpgradeHandler(m_wsUpgradeHandler);
     session->setNodeId(std::move(_nodeId));
+    session->setJwtVerifier(m_jwtVerifier);
 
     return session;
 }
@@ -310,6 +311,16 @@ CorsConfig HttpServer::corsConfig() const
 void HttpServer::setCorsConfig(CorsConfig _corsConfig)
 {
     m_corsConfig = std::move(_corsConfig);
+}
+
+jwt::JwtVerifier::Ptr HttpServer::jwtVerifier() const
+{
+    return m_jwtVerifier;
+}
+
+void HttpServer::setJwtVerifier(jwt::JwtVerifier::Ptr _jwtVerifier)
+{
+    m_jwtVerifier = std::move(_jwtVerifier);
 }
 
 /**

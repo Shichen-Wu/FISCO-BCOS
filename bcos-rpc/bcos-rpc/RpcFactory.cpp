@@ -32,6 +32,7 @@
 #include <bcos-rpc/RpcFactory.h>
 #include <bcos-rpc/event/EventSubMatcher.h>
 #include <bcos-rpc/groupmgr/TarsGroupManager.h>
+#include <bcos-rpc/openginerpc/OPEngineJsonRpcImpl.h>
 #include <bcos-rpc/jsonrpc/JsonRpcFilterSystem.h>
 #include <bcos-rpc/jsonrpc/JsonRpcImpl_2_0.h>
 #include <bcos-rpc/web3jsonrpc/Web3FilterSystem.h>
@@ -353,6 +354,34 @@ std::shared_ptr<bcos::boostssl::ws::WsConfig> RpcFactory::initWeb3RpcServiceConf
     return wsConfig;
 }
 
+std::shared_ptr<bcos::boostssl::ws::WsConfig> RpcFactory::initOpEngineRpcServiceConfig(
+    const bcos::tool::NodeConfig::Ptr& _nodeConfig)
+{
+    auto wsConfig = std::make_shared<boostssl::ws::WsConfig>();
+    wsConfig->setModel(bcos::boostssl::ws::WsModel::Server);
+    wsConfig->setListenIP(_nodeConfig->opEngineRpcListenIP());
+    wsConfig->setListenPort(_nodeConfig->opEngineRpcListenPort());
+    wsConfig->setThreadPoolSize(_nodeConfig->opEngineRpcThreadSize());
+    wsConfig->setDisableSsl(true);
+    wsConfig->setMaxMsgSize(_nodeConfig->opEngineHttpBodySizeLimit());
+    wsConfig->setEnableJWT(true);
+    wsConfig->setJwtSecretFile(_nodeConfig->opEngineJwtSecretFile());
+    wsConfig->setJwtClockSkewSecs(_nodeConfig->opEngineClockSkewSecs());
+    wsConfig->setJwtAllowedAlgorithms("HS256");
+
+    RPC_LOG(INFO) << LOG_BADGE("initOpEngineRpcServiceConfig")
+                  << LOG_KV("listenIP", wsConfig->listenIP())
+                  << LOG_KV("listenPort", wsConfig->listenPort())
+                  << LOG_KV("threadCount", wsConfig->threadPoolSize())
+                  << LOG_KV("asServer", wsConfig->asServer())
+                  << LOG_KV("maxMsgSize", wsConfig->maxMsgSize())
+                  << LOG_KV("enableJWT", wsConfig->enableJWT())
+                  << LOG_KV("jwtSecretFile", wsConfig->jwtSecretFile())
+                  << LOG_KV("jwtClockSkewSecs", wsConfig->jwtClockSkewSecs());
+
+    return wsConfig;
+}
+
 bcos::boostssl::ws::WsService::Ptr RpcFactory::buildWsService(
     bcos::boostssl::ws::WsConfig::Ptr _config)
 {
@@ -424,6 +453,23 @@ bcos::rpc::Web3JsonRpcImpl::Ptr RpcFactory::buildWeb3JsonRpc(
     return web3JsonRpc;
 }
 
+bcos::rpc::OPEngineJsonRpcImpl::Ptr RpcFactory::buildOpEngineJsonRpc(
+    boostssl::ws::WsService::Ptr _wsService, GroupManager::Ptr _groupManager)
+{
+    auto opEngineJsonRpc = std::make_shared<OPEngineJsonRpcImpl>(
+        m_nodeConfig->groupId(), m_nodeConfig->opEngineBatchRequestSizeLimit(), _groupManager,
+        m_gateway, _wsService);
+
+    if (auto httpServer = _wsService->httpServer())
+    {
+        httpServer->setHttpReqHandler([opEngineJsonRpc](std::string_view body, auto sender) {
+            opEngineJsonRpc->onRPCRequest(body, std::move(sender));
+        });
+    }
+
+    return opEngineJsonRpc;
+}
+
 
 bcos::event::EventSub::Ptr RpcFactory::buildEventSub(
     const std::shared_ptr<boostssl::ws::WsService>& _wsService, GroupManager::Ptr _groupManager)
@@ -452,6 +498,15 @@ Rpc::Ptr RpcFactory::buildRpc(std::string const& _gatewayServiceName,
                   << LOG_KV("threadCount", config->threadPoolSize())
                   << LOG_KV("gatewayServiceName", _gatewayServiceName);
     auto rpc = buildRpc(m_nodeConfig->sendTxTimeout(), wsService, groupManager, amopClient);
+    if (m_nodeConfig->enableOpEngineRpc())
+    {
+        auto opEngineConfig = initOpEngineRpcServiceConfig(m_nodeConfig);
+        auto opEngineWsService = buildWsService(std::move(opEngineConfig));
+        auto opEngineJsonRpc = buildOpEngineJsonRpc(opEngineWsService, groupManager);
+
+        rpc->setOpEngineService(opEngineWsService);
+        rpc->setOpEngineJsonRpcImpl(std::move(opEngineJsonRpc));
+    }
     return rpc;
 }
 
@@ -463,6 +518,15 @@ Rpc::Ptr RpcFactory::buildLocalRpc(
     auto groupManager = buildAirGroupManager(_groupInfo, _nodeService);
     auto amopClient = buildAirAMOPClient(wsService);
     auto rpc = buildRpc(m_nodeConfig->sendTxTimeout(), wsService, groupManager, amopClient);
+    if (m_nodeConfig->enableOpEngineRpc())
+    {
+        auto opEngineConfig = initOpEngineRpcServiceConfig(m_nodeConfig);
+        auto opEngineWsService = buildWsService(std::move(opEngineConfig));
+        auto opEngineJsonRpc = buildOpEngineJsonRpc(opEngineWsService, groupManager);
+
+        rpc->setOpEngineService(opEngineWsService);
+        rpc->setOpEngineJsonRpcImpl(std::move(opEngineJsonRpc));
+    }
     if (m_nodeConfig->enableWeb3Rpc())
     {
         auto web3Config = initWeb3RpcServiceConfig(m_nodeConfig);
@@ -514,8 +578,9 @@ Rpc::Ptr RpcFactory::buildLocalRpc(
                                        << LOG_KV("e", boost::diagnostic_information(e));
                     }
                 }
-            });
+        });
     }
+
     // Note: init groupManager after create rpc and register the handlers
     groupManager->init();
     return rpc;

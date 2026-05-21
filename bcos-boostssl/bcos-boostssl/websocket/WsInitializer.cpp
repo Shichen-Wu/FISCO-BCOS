@@ -20,6 +20,8 @@
 #include <bcos-boostssl/context/ContextBuilder.h>
 #include <bcos-boostssl/context/NodeInfoTools.h>
 #include <bcos-boostssl/httpserver/Common.h>
+#include <bcos-boostssl/jwt/JwtConfig.h>
+#include <bcos-boostssl/jwt/JwtVerifier.h>
 #include <bcos-boostssl/websocket/Common.h>
 #include <bcos-boostssl/websocket/WsConfig.h>
 #include <bcos-boostssl/websocket/WsConnector.h>
@@ -129,6 +131,15 @@ void WsInitializer::initWsService(WsService::Ptr _wsService)
         auto httpServer = httpServerFactory->buildHttpServer(_config->listenIP(),
             _config->listenPort(), ioServicePool->getIOService(), srvCtx, _config->maxMsgSize(),
             _config->corsConfig());
+
+        if (_config->enableJWT())
+        {
+            auto jwtConfig = std::make_shared<jwt::JwtConfig>();
+            jwtConfig->setSecretFile(_config->jwtSecretFile());
+            jwtConfig->setClockSkewSecs(_config->jwtClockSkewSecs());
+            jwtConfig->setAllowedAlgorithms(_config->jwtAllowedAlgorithms());
+            httpServer->setJwtVerifier(std::make_shared<jwt::JwtVerifier>(std::move(jwtConfig)));
+        }
 
         httpServer->setIOServicePool(ioServicePool);
         httpServer->setDisableSsl(_config->disableSsl());

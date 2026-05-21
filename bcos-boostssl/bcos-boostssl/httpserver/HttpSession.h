@@ -21,6 +21,7 @@
 #include <bcos-boostssl/httpserver/Common.h>
 #include <bcos-boostssl/httpserver/HttpQueue.h>
 #include <bcos-boostssl/httpserver/HttpStream.h>
+#include <bcos-boostssl/jwt/JwtVerifier.h>
 #include <bcos-utilities/BoostLog.h>
 #include <bcos-utilities/ThreadPool.h>
 #include <boost/asio/dispatch.hpp>
@@ -90,6 +91,9 @@ public:
     CorsConfig corsConfig() const;
     void setCorsConfig(CorsConfig _corsConfig);
 
+    jwt::JwtVerifier::Ptr jwtVerifier() const;
+    void setJwtVerifier(jwt::JwtVerifier::Ptr _jwtVerifier);
+
 private:
     HttpStream::Ptr m_httpStream;
     boost::beast::flat_buffer m_buffer;
@@ -104,6 +108,7 @@ private:
 
     uint32_t m_httpBodySizeLimit;
     CorsConfig m_corsConfig;
+    jwt::JwtVerifier::Ptr m_jwtVerifier;
 };
 
 }  // namespace bcos::boostssl::http

@@ -19,6 +19,7 @@
  */
 #pragma once
 
+#include <bcos-boostssl/jwt/JwtVerifier.h>
 #include <bcos-boostssl/httpserver/HttpSession.h>
 #include <bcos-utilities/IOServicePool.h>
 #include <utility>
@@ -73,6 +74,9 @@ public:
     CorsConfig corsConfig() const;
     void setCorsConfig(CorsConfig _corsConfig);
 
+    jwt::JwtVerifier::Ptr jwtVerifier() const;
+    void setJwtVerifier(jwt::JwtVerifier::Ptr _jwtVerifier);
+
 private:
     std::string m_listenIP;
     uint16_t m_listenPort;
@@ -90,6 +94,7 @@ private:
     uint32_t m_httpBodySizeLimit;
     // cors config
     CorsConfig m_corsConfig;
+    jwt::JwtVerifier::Ptr m_jwtVerifier;
 };
 
 // The http server factory

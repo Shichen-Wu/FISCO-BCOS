@@ -58,6 +58,8 @@ public:
         const bcos::tool::NodeConfig::Ptr& _nodeConfig);
     std::shared_ptr<boostssl::ws::WsConfig> initWeb3RpcServiceConfig(
         const bcos::tool::NodeConfig::Ptr& _nodeConfig);
+    std::shared_ptr<boostssl::ws::WsConfig> initOpEngineRpcServiceConfig(
+        const bcos::tool::NodeConfig::Ptr& _nodeConfig);
     std::shared_ptr<boostssl::ws::WsService> buildWsService(
         bcos::boostssl::ws::WsConfig::Ptr _config);
 
@@ -92,6 +94,8 @@ protected:
         GroupManager::Ptr _groupManager);
 
     bcos::rpc::Web3JsonRpcImpl::Ptr buildWeb3JsonRpc(int sendTxTimeout,
+        boostssl::ws::WsService::Ptr _wsService, GroupManager::Ptr _groupManager);
+    bcos::rpc::OPEngineJsonRpcImpl::Ptr buildOpEngineJsonRpc(
         boostssl::ws::WsService::Ptr _wsService, GroupManager::Ptr _groupManager);
     bcos::event::EventSub::Ptr buildEventSub(
         const std::shared_ptr<boostssl::ws::WsService>& _wsService,

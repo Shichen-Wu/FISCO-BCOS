@@ -60,6 +60,7 @@ public:
     virtual void loadServiceConfig(boost::property_tree::ptree const& _pt);
     virtual void loadRpcServiceConfig(boost::property_tree::ptree const& _pt);
     virtual void loadGatewayServiceConfig(boost::property_tree::ptree const& _pt);
+    virtual void loadOpEngineRpcConfig(boost::property_tree::ptree const& _pt);
 
     virtual void loadWithoutTarsFrameworkConfig(boost::property_tree::ptree const& _pt);
 
@@ -183,6 +184,15 @@ public:
     int32_t web3CorsMaxAge() const;
     bool web3CorsAllowCredentials() const;
     bool web3SyncTransaction() const;
+
+    bool enableOpEngineRpc() const;
+    const std::string& opEngineRpcListenIP() const;
+    uint16_t opEngineRpcListenPort() const;
+    uint32_t opEngineRpcThreadSize() const;
+    uint32_t opEngineHttpBodySizeLimit() const;
+    uint32_t opEngineBatchRequestSizeLimit() const;
+    const std::string& opEngineJwtSecretFile() const;
+    int32_t opEngineClockSkewSecs() const;
 
     // the gateway configurations
     const std::string& p2pListenIP() const;
@@ -449,6 +459,16 @@ private:
     int32_t m_web3CorsMaxAge = 86400;
     bool m_web3CorsAllowCredentials = true;
     bool m_web3SyncTransaction = false;
+
+    // config for op engine rpc
+    bool m_enableOpEngineRpc = false;
+    std::string m_opEngineRpcListenIP = "127.0.0.1";
+    uint16_t m_opEngineRpcListenPort{};
+    uint32_t m_opEngineRpcThreadSize{};
+    uint32_t m_opEngineHttpBodySizeLimit{};
+    uint32_t m_opEngineBatchRequestSizeLimit{};
+    std::string m_opEngineJwtSecretFile;
+    int32_t m_opEngineClockSkewSecs{60};
 
     // config for gateway
     std::string m_p2pListenIP;

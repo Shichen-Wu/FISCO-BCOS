@@ -36,9 +36,6 @@ public:
     ~JwtConfig() = default;
 
 public:
-    bool enableJWT() const { return m_enableJWT; }
-    void setEnableJWT(bool _enableJWT) { m_enableJWT = _enableJWT; }
-
     const std::string& secretFile() const { return m_secretFile; }
     void setSecretFile(std::string _secretFile) { m_secretFile = std::move(_secretFile); }
 
@@ -52,7 +49,6 @@ public:
     }
 
 private:
-    bool m_enableJWT{false};
     std::string m_secretFile;
     int64_t m_clockSkewSecs{60};
     std::string m_allowedAlgorithms{"HS256"};
