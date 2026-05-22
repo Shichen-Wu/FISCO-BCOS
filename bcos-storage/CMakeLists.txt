@@ -1,4 +1,3 @@
-cmake_minimum_required(VERSION 3.14)
 
 project(bcos-storage VERSION ${VERSION})
 
@@ -9,6 +8,7 @@ find_package(Boost REQUIRED serialization thread context filesystem)
 
 set(SRC_LIST bcos-storage/Common.cpp)
 list(APPEND SRC_LIST bcos-storage/RocksDBStorage.cpp)
+list(APPEND SRC_LIST bcos-storage/CheckpointRocksDBStorage.cpp)
 
 set(LIB_LIST table bcos-framework Boost::serialization Boost::filesystem zstd::libzstd_static RocksDB::rocksdb ittapi)
 
@@ -25,6 +25,8 @@ target_include_directories(storage PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<INSTALL_INTERFACE:include/bcos-storage>)
 target_link_libraries(storage PUBLIC ${LIB_LIST})
+set_source_files_properties(
+  "bcos-storage/CheckpointRocksDBStorage.cpp" PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
 set_target_properties(storage PROPERTIES UNITY_BUILD "ON")
 
 if (APPLE)

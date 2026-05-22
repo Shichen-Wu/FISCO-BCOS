@@ -32,6 +32,7 @@
 #include <bcos-executor/src/executor/SwitchExecutorManager.h>
 #include <bcos-scheduler/src/SchedulerManager.h>
 #include <bcos-utilities/BoostLogInitializer.h>
+#include <bcos-utilities/IOServicePool.h>
 #include <memory>
 #ifdef WITH_LIGHTNODE
 #include "LightNodeInitializer.h"
@@ -55,6 +56,7 @@ class SchedulerInterface;
 namespace initializer
 {
 class GlobalStateStorageInitializer;
+class MemPoolInitializer;
 
 class Initializer
 {
@@ -71,11 +73,20 @@ public:
     ProtocolInitializer::Ptr protocolInitializer() { return m_protocolInitializer; }
     PBFTInitializer::Ptr pbftInitializer() { return m_pbftInitializer; }
     TxPoolInitializer::Ptr txPoolInitializer() { return m_txpoolInitializer; }
+    std::shared_ptr<MemPoolInitializer> memPoolInitializer()
+    {
+        return m_memPoolInitializer;
+    }
 
     bcos::ledger::LedgerInterface::Ptr ledger() { return m_ledger; }
     std::shared_ptr<bcos::scheduler::SchedulerInterface> scheduler() { return m_scheduler; }
 
     FrontServiceInitializer::Ptr frontService() { return m_frontServiceInitializer; }
+
+    void setIOServicePool(bcos::IOServicePool::Ptr _ioServicePool)
+    {
+        m_ioServicePool = std::move(_ioServicePool);
+    }
 
     void initAirNode(std::string const& _configFilePath, std::string const& _genesisFile,
         std::shared_ptr<bcos::gateway::GatewayInterface> _gateway, const std::string& _logPath);
@@ -111,6 +122,7 @@ private:
     bcos::tool::NodeConfig::Ptr m_nodeConfig;
     ProtocolInitializer::Ptr m_protocolInitializer;
     FrontServiceInitializer::Ptr m_frontServiceInitializer;
+    bcos::IOServicePool::Ptr m_ioServicePool;
     TxPoolInitializer::Ptr m_txpoolInitializer;
     PBFTInitializer::Ptr m_pbftInitializer;
 #ifdef WITH_LIGHTNODE
@@ -130,6 +142,7 @@ private:
     // if enable SeparateBlockAndState,txs and receipts will be stored in m_blockStorage
     bcos::storage::TransactionalStorageInterface::Ptr m_blockStorage = nullptr;
     std::shared_ptr<GlobalStateStorageInitializer> m_globalStateStorageInitializer;
+    std::shared_ptr<MemPoolInitializer> m_memPoolInitializer;
 
     std::function<std::shared_ptr<scheduler::SchedulerInterface>()> m_baselineSchedulerHolder;
     std::function<void(std::function<void(protocol::BlockNumber)>)>

@@ -2,12 +2,14 @@
 #include "bcos-framework/storage2/Storage.h"
 #include "bcos-framework/transaction-executor/StateKey.h"
 #include "bcos-task/Wait.h"
+#include <bcos-storage/CheckpointRocksDBStorage.h>
 #include <bcos-framework/storage/Entry.h>
 #include <bcos-storage/RocksDBStorage2.h>
 #include <bcos-storage/StateKVResolver.h>
 #include <fmt/format.h>
 #include <boost/filesystem.hpp>
 #include <boost/test/unit_test.hpp>
+#include <filesystem>
 #include <range/v3/view/enumerate.hpp>
 #include <range/v3/view/iota.hpp>
 #include <range/v3/view/repeat.hpp>
@@ -18,6 +20,9 @@ using namespace bcos;
 using namespace bcos::storage2::rocksdb;
 using namespace bcos::executor_v1;
 using namespace std::string_view_literals;
+
+using TestCheckpointStorage =
+    CheckpointRocksDBStorage<StateKey, StateValue, StateKeyResolver, StateValueResolver>;
 
 struct TestRocksDBStorage2Fixture
 {
@@ -37,6 +42,25 @@ struct TestRocksDBStorage2Fixture
 
     ~TestRocksDBStorage2Fixture() { boost::filesystem::remove_all(path); }
     std::unique_ptr<rocksdb::DB> originRocksDB;
+
+    static void populate(const std::string& dbPath, std::string_view table, std::string_view key,
+        std::string_view value)
+    {
+        boost::filesystem::create_directories(dbPath);
+
+        ::rocksdb::Options options;
+        options.create_if_missing = true;
+
+        rocksdb::DB* db = nullptr;
+        auto status = rocksdb::DB::Open(options, dbPath, &db);
+        BOOST_REQUIRE(status.ok());
+        std::unique_ptr<rocksdb::DB> guard(db);
+
+        RocksDBStorage2<StateKey, StateValue, StateKeyResolver, StateValueResolver> storage(
+            *guard, StateKeyResolver{}, StateValueResolver{});
+        task::syncWait(storage2::writeOne(
+            storage, StateKey{table, key}, storage::Entry(std::string(value))));
+    }
 };
 
 BOOST_FIXTURE_TEST_SUITE(TestRocksDBStorage2, TestRocksDBStorage2Fixture)
@@ -210,6 +234,82 @@ BOOST_AUTO_TEST_CASE(merge)
 
         co_return;
     }());
+}
+
+BOOST_AUTO_TEST_CASE(openLatestOrCheckpointByDirectory)
+{
+    auto root = path + "_checkpoint_root";
+    TestCheckpointStorage checkpointRocksDBStorage(root, StateKeyResolver{}, StateValueResolver{});
+    auto latestPath = checkpointRocksDBStorage.latestPath();
+    auto firstCheckpointName = h256("1111111111111111111111111111111111111111111111111111111111111111");
+    auto secondCheckpointName = h256("2222222222222222222222222222222222222222222222222222222222222222");
+    auto firstCheckpointPath = checkpointRocksDBStorage.checkpointPath(firstCheckpointName);
+    auto secondCheckpointPath = checkpointRocksDBStorage.checkpointPath(secondCheckpointName);
+
+    task::syncWait([&]() -> task::Task<void> {
+        auto latestStorage = checkpointRocksDBStorage.open();
+        co_await storage2::writeOne(
+            latestStorage, StateKey{"sys"sv, "key"sv}, storage::Entry("latest-value-1"));
+        auto latestValue = co_await storage2::readOne(latestStorage, StateKey{"sys"sv, "key"sv});
+        BOOST_REQUIRE(latestValue);
+        BOOST_CHECK_EQUAL(latestValue->get(), "latest-value-1");
+        BOOST_CHECK_EQUAL(checkpointRocksDBStorage.latestPath(), latestPath);
+        BOOST_CHECK(!checkpointRocksDBStorage.latestCheckpointName());
+        BOOST_CHECK(!checkpointRocksDBStorage.oldestCheckpointName());
+
+        checkpointRocksDBStorage.createCheckpoint(latestStorage, firstCheckpointName);
+        auto firstCheckpointTime = std::filesystem::file_time_type::clock::now();
+        std::filesystem::last_write_time(firstCheckpointPath, firstCheckpointTime);
+        BOOST_REQUIRE(checkpointRocksDBStorage.latestCheckpointName());
+        BOOST_REQUIRE(checkpointRocksDBStorage.oldestCheckpointName());
+        BOOST_CHECK_EQUAL(*checkpointRocksDBStorage.latestCheckpointName(), firstCheckpointName);
+        BOOST_CHECK_EQUAL(*checkpointRocksDBStorage.oldestCheckpointName(), firstCheckpointName);
+
+        auto firstCheckpointStorage = checkpointRocksDBStorage.open(firstCheckpointName);
+        auto firstCheckpointValue = co_await storage2::readOne(
+            firstCheckpointStorage, StateKey{"sys"sv, "key"sv});
+        BOOST_REQUIRE(firstCheckpointValue);
+        BOOST_CHECK_EQUAL(firstCheckpointValue->get(), "latest-value-1");
+        BOOST_CHECK_EQUAL(
+            checkpointRocksDBStorage.checkpointPath(firstCheckpointName), firstCheckpointPath);
+
+        co_await storage2::writeOne(
+            latestStorage, StateKey{"sys"sv, "key"sv}, storage::Entry("latest-value-2"));
+        checkpointRocksDBStorage.createCheckpoint(latestStorage, secondCheckpointName);
+        auto secondCheckpointTime = firstCheckpointTime + std::chrono::seconds(1);
+        std::filesystem::last_write_time(secondCheckpointPath, secondCheckpointTime);
+        BOOST_REQUIRE(checkpointRocksDBStorage.latestCheckpointName());
+        BOOST_REQUIRE(checkpointRocksDBStorage.oldestCheckpointName());
+        BOOST_CHECK_EQUAL(*checkpointRocksDBStorage.latestCheckpointName(), secondCheckpointName);
+        BOOST_CHECK_EQUAL(*checkpointRocksDBStorage.oldestCheckpointName(), firstCheckpointName);
+
+        auto secondCheckpointStorage = checkpointRocksDBStorage.open(secondCheckpointName);
+        auto secondCheckpointValue = co_await storage2::readOne(
+            secondCheckpointStorage, StateKey{"sys"sv, "key"sv});
+        BOOST_REQUIRE(secondCheckpointValue);
+        BOOST_CHECK_EQUAL(secondCheckpointValue->get(), "latest-value-2");
+        BOOST_CHECK_EQUAL(
+            checkpointRocksDBStorage.checkpointPath(secondCheckpointName), secondCheckpointPath);
+
+        auto latestValueAfterSecondCheckpoint =
+            co_await storage2::readOne(latestStorage, StateKey{"sys"sv, "key"sv});
+        BOOST_REQUIRE(latestValueAfterSecondCheckpoint);
+        BOOST_CHECK_EQUAL(latestValueAfterSecondCheckpoint->get(), "latest-value-2");
+
+        checkpointRocksDBStorage.deleteCheckpoint(firstCheckpointName);
+        BOOST_REQUIRE(checkpointRocksDBStorage.latestCheckpointName());
+        BOOST_REQUIRE(checkpointRocksDBStorage.oldestCheckpointName());
+        BOOST_CHECK_EQUAL(*checkpointRocksDBStorage.latestCheckpointName(), secondCheckpointName);
+        BOOST_CHECK_EQUAL(*checkpointRocksDBStorage.oldestCheckpointName(), secondCheckpointName);
+
+        checkpointRocksDBStorage.deleteCheckpoint(secondCheckpointName);
+        BOOST_CHECK(!checkpointRocksDBStorage.latestCheckpointName());
+        BOOST_CHECK(!checkpointRocksDBStorage.oldestCheckpointName());
+
+        co_return;
+    }());
+
+    boost::filesystem::remove_all(root);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -31,6 +31,7 @@
 #include "LedgerInitializer.h"
 #include "SchedulerInitializer.h"
 #include "StorageInitializer.h"
+#include "MemPoolInitializer.h"
 #include "bcos-executor/src/executor/SwitchExecutorManager.h"
 #include "bcos-framework/dispatcher/SchedulerInterface.h"
 #include "bcos-framework/ledger/Ledger.h"
@@ -158,9 +159,15 @@ void Initializer::init(bcos::protocol::NodeArchitectureType _nodeArchType,
     std::string const& _configFilePath, std::string const& _genesisFile,
     bcos::gateway::GatewayInterface::Ptr _gateway, bool _airVersion, const std::string& _logPath)
 {
+    if (!m_ioServicePool)
+    {
+        m_ioServicePool = std::make_shared<bcos::IOServicePool>(1);
+        m_ioServicePool->start();
+    }
+
     // build the front service
-    m_frontServiceInitializer =
-        std::make_shared<FrontServiceInitializer>(m_nodeConfig, m_protocolInitializer, _gateway);
+    m_frontServiceInitializer = std::make_shared<FrontServiceInitializer>(
+        m_nodeConfig, m_protocolInitializer, _gateway, m_ioServicePool);
 
     // build the storage
     auto stateDBPath = getStateDBPath(_airVersion);
@@ -255,6 +262,7 @@ void Initializer::init(bcos::protocol::NodeArchitectureType _nodeArchType,
     // init the txpool
     m_txpoolInitializer = std::make_shared<TxPoolInitializer>(
         m_nodeConfig, m_protocolInitializer, m_frontServiceInitializer->front(), ledger);
+    m_memPoolInitializer = MemPoolInitializer::build();
 
     std::shared_ptr<bcos::scheduler::TarsExecutorManager> executorManager;
 
@@ -632,6 +640,10 @@ void Initializer::stop()
             m_archiveService->stop();
         }
 #endif
+        if (m_ioServicePool)
+        {
+            m_ioServicePool->stop();
+        }
     }
     catch (std::exception const& e)
     {
