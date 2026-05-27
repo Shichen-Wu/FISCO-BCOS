@@ -29,12 +29,15 @@ enum class OPEngineMethod
     engine_forkchoiceUpdatedV1,
     engine_forkchoiceUpdatedV2,
     engine_forkchoiceUpdatedV3,
+    engine_forkchoiceUpdatedV4,
     engine_getPayloadV1,
     engine_getPayloadV2,
     engine_getPayloadV3,
+    engine_getPayloadV4,
     engine_newPayloadV1,
     engine_newPayloadV2,
     engine_newPayloadV3,
+    engine_newPayloadV4,
 };
 
 inline std::string_view methodString(OPEngineMethod _method)
@@ -49,18 +52,24 @@ inline std::string_view methodString(OPEngineMethod _method)
         return "engine_forkchoiceUpdatedV2";
     case OPEngineMethod::engine_forkchoiceUpdatedV3:
         return "engine_forkchoiceUpdatedV3";
+    case OPEngineMethod::engine_forkchoiceUpdatedV4:
+        return "engine_forkchoiceUpdatedV4";
     case OPEngineMethod::engine_getPayloadV1:
         return "engine_getPayloadV1";
     case OPEngineMethod::engine_getPayloadV2:
         return "engine_getPayloadV2";
     case OPEngineMethod::engine_getPayloadV3:
         return "engine_getPayloadV3";
+    case OPEngineMethod::engine_getPayloadV4:
+        return "engine_getPayloadV4";
     case OPEngineMethod::engine_newPayloadV1:
         return "engine_newPayloadV1";
     case OPEngineMethod::engine_newPayloadV2:
         return "engine_newPayloadV2";
     case OPEngineMethod::engine_newPayloadV3:
         return "engine_newPayloadV3";
+    case OPEngineMethod::engine_newPayloadV4:
+        return "engine_newPayloadV4";
     }
     return {};
 }

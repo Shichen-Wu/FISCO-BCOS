@@ -5,6 +5,18 @@
 
 #include <range/v3/view/enumerate.hpp>
 
+namespace
+{
+Json::Value toEthereumCompatibleExtraData(bcos::bytesConstRef _extraData)
+{
+    // Ethereum post-merge block headers require extraData to be at most 32 bytes.
+    // FISCO-BCOS block headers may carry larger consensus-specific metadata here,
+    // so we truncate the exposed web3 value for compatibility with OP Stack clients.
+    auto size = std::min<std::size_t>(_extraData.size(), 32);
+    return bcos::toHexStringWithPrefix(_extraData.getCroppedData(0, size));
+}
+}  // namespace
+
 void bcos::rpc::combineBlockResponse(
     Json::Value& result, const bcos::protocol::Block& block, bool fullTxs)
 {
@@ -56,7 +68,7 @@ void bcos::rpc::combineBlockResponse(
     }
     result["difficulty"] = "0x0";
     result["totalDifficulty"] = "0x0";
-    result["extraData"] = toHexStringWithPrefix(blockHeader->extraData());
+    result["extraData"] = toEthereumCompatibleExtraData(blockHeader->extraData());
     result["size"] = toQuantity(block.size());
     // TODO: change it wen block gas limit apply
     result["gasLimit"] = toQuantity(30000000ULL);

@@ -21,7 +21,12 @@
 
 #include "endpoints/OPEngineEndpoints.h"
 #include "endpoints/OPEngineEndpointsMapping.h"
+#include "engine/bcos-engine/EngineService.h"
+#include "bcos-framework/gateway/GatewayInterface.h"
+#include <bcos-rpc/filter/FilterSystem.h>
 #include <bcos-rpc/groupmgr/GroupManager.h>
+#include <bcos-rpc/web3jsonrpc/endpoints/Endpoints.h>
+#include <bcos-rpc/web3jsonrpc/endpoints/EndpointsMapping.h>
 #include <bcos-boostssl/websocket/WsService.h>
 #include <json/json.h>
 
@@ -35,8 +40,11 @@ public:
 
     OPEngineJsonRpcImpl(std::string _groupId, uint32_t _batchRequestSizeLimit,
         GroupManager::Ptr _groupManager, bcos::gateway::GatewayInterface::Ptr _gatewayInterface,
-        std::shared_ptr<boostssl::ws::WsService> _wsService);
+        std::shared_ptr<boostssl::ws::WsService> _wsService, FilterSystem::Ptr _filterSystem,
+        bool _syncTransaction);
     ~OPEngineJsonRpcImpl() = default;
+
+    void setEngineService(bcos::engine::EngineServiceInterface::Ptr _engineService);
 
     void onRPCRequest(std::string_view _requestBody, const Sender& _sender);
 
@@ -52,7 +60,10 @@ private:
     GroupManager::Ptr m_groupManager;
     bcos::gateway::GatewayInterface::Ptr m_gatewayInterface;
     std::shared_ptr<boostssl::ws::WsService> m_wsService;
+    bcos::engine::EngineServiceInterface::Ptr m_engineService;
     OPEngineEndpoints m_endpoints;
     OPEngineEndpointsMapping m_endpointsMapping;
+    Endpoints m_web3Endpoints;
+    EndpointsMapping m_web3EndpointsMapping;
 };
 }  // namespace bcos::rpc

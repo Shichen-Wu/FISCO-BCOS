@@ -146,6 +146,23 @@ struct GetPayloadResult
     bool shouldOverrideBuilder = false;
 };
 
+class EngineServiceInterface
+{
+public:
+    using Ptr = std::shared_ptr<EngineServiceInterface>;
+    virtual ~EngineServiceInterface() = default;
+
+    virtual bcos::task::Task<std::vector<std::string>> exchangeCapabilities(
+        std::vector<std::string> remoteCapabilities) = 0;
+    virtual bcos::task::Task<ForkchoiceUpdatedResult> updateForkchoice(
+        const ForkchoiceState& forkchoiceState, const PayloadAttributes* payloadAttributes,
+        std::uint32_t version) = 0;
+    virtual bcos::task::Task<GetPayloadResult> getPayload(
+        const PayloadID& payloadId, std::uint32_t version) = 0;
+    virtual bcos::task::Task<PayloadStatus> newPayload(
+        const NewPayloadRequest& request, std::uint32_t version) = 0;
+};
+
 namespace detail
 {
 std::string encodePayloadSequence(std::uint64_t value);
@@ -164,7 +181,7 @@ std::optional<std::string> validateExecutionPayload(
 }  // namespace detail
 
 template <class MemPoolType, class GlobalStateStorageType>
-class EngineService
+class EngineService : public EngineServiceInterface
 {
 public:
     EngineService(MemPoolType& memPool, GlobalStateStorageType& globalStateStorage)
@@ -178,6 +195,7 @@ public:
 
     bcos::task::Task<std::vector<std::string>> exchangeCapabilities(
         std::vector<std::string> remoteCapabilities)
+        override
     {
         (void)remoteCapabilities;
         co_return detail::supportedCapabilities();
@@ -185,7 +203,7 @@ public:
 
     bcos::task::Task<ForkchoiceUpdatedResult> updateForkchoice(
         const ForkchoiceState& forkchoiceState, const PayloadAttributes* payloadAttributes,
-        std::uint32_t version)
+        std::uint32_t version) override
     {
         if (!isVersionSupported(version))
         {
@@ -314,12 +332,13 @@ public:
     }
 
     bcos::task::Task<GetPayloadResult> getPayload(const PayloadID& payloadId, std::uint32_t version)
+        override
     {
         co_return handleGetPayload(payloadId, version);
     }
 
     bcos::task::Task<PayloadStatus> newPayload(
-        const NewPayloadRequest& request, std::uint32_t version)
+        const NewPayloadRequest& request, std::uint32_t version) override
     {
         co_return handleNewPayload(request, version);
     }

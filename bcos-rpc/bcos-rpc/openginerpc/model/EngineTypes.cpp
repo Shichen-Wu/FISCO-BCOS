@@ -51,6 +51,65 @@ bool readOptionalStringField(
     return true;
 }
 
+bool readOptionalStringField(Json::Value const& _root, char const* _field, std::string& _value)
+{
+    auto const* value = _root.find(_field);
+    if (value == nullptr || value->isNull())
+    {
+        _value.clear();
+        return true;
+    }
+    if (!value->isString())
+    {
+        return false;
+    }
+    _value = value->asString();
+    return true;
+}
+
+bool readOptionalBoolField(Json::Value const& _root, char const* _field, bool& _value)
+{
+    auto const* value = _root.find(_field);
+    if (value == nullptr || value->isNull())
+    {
+        _value = false;
+        return true;
+    }
+    if (!value->isBool())
+    {
+        return false;
+    }
+    _value = value->asBool();
+    return true;
+}
+
+bool readOptionalStringArrayField(
+    Json::Value const& _root, char const* _field, std::vector<std::string>& _value)
+{
+    auto const* value = _root.find(_field);
+    if (value == nullptr || value->isNull())
+    {
+        _value.clear();
+        return true;
+    }
+    if (!value->isArray())
+    {
+        return false;
+    }
+    std::vector<std::string> result;
+    result.reserve(value->size());
+    for (auto const& item : *value)
+    {
+        if (!item.isString())
+        {
+            return false;
+        }
+        result.emplace_back(item.asString());
+    }
+    _value = std::move(result);
+    return true;
+}
+
 bool readStringArrayField(Json::Value const& _root, char const* _field, std::vector<std::string>& _value)
 {
     auto const* value = _root.find(_field);
@@ -162,7 +221,12 @@ bool decodePayloadAttributesV3(Json::Value const& _root, PayloadAttributesV3& _p
            readStringField(_root, "prevRandao", _payloadAttributes.prevRandao) &&
            readStringField(_root, "suggestedFeeRecipient", _payloadAttributes.suggestedFeeRecipient) &&
            readWithdrawalsField(_root, "withdrawals", _payloadAttributes.withdrawals) &&
-           readStringField(_root, "parentBeaconBlockRoot", _payloadAttributes.parentBeaconBlockRoot);
+           readStringField(_root, "parentBeaconBlockRoot", _payloadAttributes.parentBeaconBlockRoot) &&
+           readOptionalStringArrayField(_root, "transactions", _payloadAttributes.transactions) &&
+           readOptionalBoolField(_root, "noTxPool", _payloadAttributes.noTxPool) &&
+           readOptionalStringField(_root, "gasLimit", _payloadAttributes.gasLimit) &&
+           readOptionalStringField(_root, "eip1559Params", _payloadAttributes.eip1559Params) &&
+           readOptionalStringField(_root, "minBaseFee", _payloadAttributes.minBaseFee);
 }
 
 bool decodePayloadStatus(Json::Value const& _root, PayloadStatus& _payloadStatus)
@@ -234,6 +298,20 @@ void appendPayloadAttributesV3(Json::Value& _result, PayloadAttributesV3 const& 
     _result["suggestedFeeRecipient"] = _payloadAttributes.suggestedFeeRecipient;
     appendWithdrawalsField(_result, "withdrawals", _payloadAttributes.withdrawals);
     _result["parentBeaconBlockRoot"] = _payloadAttributes.parentBeaconBlockRoot;
+    appendStringArrayField(_result, "transactions", _payloadAttributes.transactions);
+    _result["noTxPool"] = _payloadAttributes.noTxPool;
+    if (!_payloadAttributes.gasLimit.empty())
+    {
+        _result["gasLimit"] = _payloadAttributes.gasLimit;
+    }
+    if (!_payloadAttributes.eip1559Params.empty())
+    {
+        _result["eip1559Params"] = _payloadAttributes.eip1559Params;
+    }
+    if (!_payloadAttributes.minBaseFee.empty())
+    {
+        _result["minBaseFee"] = _payloadAttributes.minBaseFee;
+    }
 }
 
 void appendPayloadStatus(Json::Value& _result, PayloadStatus const& _payloadStatus)
@@ -271,4 +349,3 @@ void appendBlobsBundle(Json::Value& _result, BlobsBundle const& _blobsBundle)
     appendStringArrayField(_result, "blobs", _blobsBundle.blobs);
 }
 }  // namespace bcos::rpc
-

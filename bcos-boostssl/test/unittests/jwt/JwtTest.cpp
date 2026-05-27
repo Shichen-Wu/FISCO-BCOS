@@ -105,14 +105,13 @@ BOOST_AUTO_TEST_CASE(testJwtVerifierSuccess)
     auto secretFile = writeSecretFile(secretHex);
 
     auto config = std::make_shared<JwtConfig>();
-    config->setEnableJWT(true);
     config->setSecretFile(secretFile);
     config->setClockSkewSecs(60);
     config->setAllowedAlgorithms("HS256");
 
     JwtVerifier verifier(config);
     auto jwt = buildJwt(R"({"alg":"HS256","typ":"JWT"})",
-        std::string("{\"iat\":") + std::to_string(static_cast<int64_t>(utcTime())) +
+        std::string("{\"iat\":") + std::to_string(static_cast<int64_t>(utcTime() / 1000)) +
             R"(,"id":"client1","clv":"1.0"})",
         secretHex);
 
@@ -126,7 +125,6 @@ BOOST_AUTO_TEST_CASE(testJwtVerifierSuccess)
 BOOST_AUTO_TEST_CASE(testJwtVerifierBadBearer)
 {
     auto config = std::make_shared<JwtConfig>();
-    config->setEnableJWT(true);
 
     JwtVerifier verifier(config);
     auto result = verifier.verify("Basic abc");
@@ -140,13 +138,12 @@ BOOST_AUTO_TEST_CASE(testJwtVerifierUnsupportedAlg)
     auto secretFile = writeSecretFile(secretHex);
 
     auto config = std::make_shared<JwtConfig>();
-    config->setEnableJWT(true);
     config->setSecretFile(secretFile);
     config->setAllowedAlgorithms("HS256");
 
     JwtVerifier verifier(config);
     auto jwt = buildJwt(R"({"alg":"HS512","typ":"JWT"})",
-        std::string("{\"iat\":") + std::to_string(static_cast<int64_t>(utcTime())) + "}",
+        std::string("{\"iat\":") + std::to_string(static_cast<int64_t>(utcTime() / 1000)) + "}",
         secretHex);
 
     auto result = verifier.verify("Bearer " + jwt);
@@ -160,13 +157,12 @@ BOOST_AUTO_TEST_CASE(testJwtVerifierInvalidSignature)
     auto secretFile = writeSecretFile(secretHex);
 
     auto config = std::make_shared<JwtConfig>();
-    config->setEnableJWT(true);
     config->setSecretFile(secretFile);
     config->setAllowedAlgorithms("HS256");
 
     JwtVerifier verifier(config);
     auto jwt = buildJwt(R"({"alg":"HS256","typ":"JWT"})",
-        std::string("{\"iat\":") + std::to_string(static_cast<int64_t>(utcTime())) + "}",
+        std::string("{\"iat\":") + std::to_string(static_cast<int64_t>(utcTime() / 1000)) + "}",
         "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
 
     auto result = verifier.verify("Bearer " + jwt);
@@ -180,7 +176,6 @@ BOOST_AUTO_TEST_CASE(testJwtVerifierExpiredIat)
     auto secretFile = writeSecretFile(secretHex);
 
     auto config = std::make_shared<JwtConfig>();
-    config->setEnableJWT(true);
     config->setSecretFile(secretFile);
     config->setClockSkewSecs(1);
     config->setAllowedAlgorithms("HS256");

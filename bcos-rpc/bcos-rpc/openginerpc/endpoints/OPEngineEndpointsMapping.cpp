@@ -48,17 +48,23 @@ void OPEngineEndpointsMapping::addEngineHandlers()
         &OPEngineEndpoints::forkchoiceUpdatedV2;
     m_handlers[std::string(methodString(OPEngineMethod::engine_forkchoiceUpdatedV3))] =
         &OPEngineEndpoints::forkchoiceUpdatedV3;
+    m_handlers[std::string(methodString(OPEngineMethod::engine_forkchoiceUpdatedV4))] =
+        &OPEngineEndpoints::forkchoiceUpdatedV4;
     m_handlers[std::string(methodString(OPEngineMethod::engine_getPayloadV1))] =
         &OPEngineEndpoints::getPayloadV1;
     m_handlers[std::string(methodString(OPEngineMethod::engine_getPayloadV2))] =
         &OPEngineEndpoints::getPayloadV2;
     m_handlers[std::string(methodString(OPEngineMethod::engine_getPayloadV3))] =
         &OPEngineEndpoints::getPayloadV3;
+    m_handlers[std::string(methodString(OPEngineMethod::engine_getPayloadV4))] =
+        &OPEngineEndpoints::getPayloadV4;
     m_handlers[std::string(methodString(OPEngineMethod::engine_newPayloadV1))] =
         &OPEngineEndpoints::newPayloadV1;
     m_handlers[std::string(methodString(OPEngineMethod::engine_newPayloadV2))] =
         &OPEngineEndpoints::newPayloadV2;
     m_handlers[std::string(methodString(OPEngineMethod::engine_newPayloadV3))] =
         &OPEngineEndpoints::newPayloadV3;
+    m_handlers[std::string(methodString(OPEngineMethod::engine_newPayloadV4))] =
+        &OPEngineEndpoints::newPayloadV4;
 }
 }  // namespace bcos::rpc

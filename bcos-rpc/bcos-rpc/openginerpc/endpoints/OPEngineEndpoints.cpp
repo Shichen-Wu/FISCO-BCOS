@@ -21,6 +21,9 @@
 
 #include "../Common.h"
 #include "../model/EngineTypes.h"
+#include "engine/bcos-engine/EngineService.h"
+#include "bcos-framework/protocol/TransactionFactory.h"
+#include <bcos-rpc/web3jsonrpc/utils/util.h>
 #include <bcos-crypto/hash/Keccak256.h>
 #include <bcos-utilities/Common.h>
 #include <bcos-utilities/DataConvertUtility.h>
@@ -36,18 +39,6 @@ namespace
 std::string fixedHex(std::size_t _hexSize, char _fill = '0')
 {
     return "0x" + std::string(_hexSize, _fill);
-}
-
-std::string padQuantity(uint64_t _value, std::size_t _hexSize)
-{
-    std::stringstream stream;
-    stream << std::hex << _value;
-    auto out = stream.str();
-    if (out.size() < _hexSize)
-    {
-        out = std::string(_hexSize - out.size(), '0') + out;
-    }
-    return "0x" + out;
 }
 
 std::string quantity(uint64_t _value)
@@ -86,6 +77,15 @@ std::string logsBloomZeros()
     return fixedHex(512, '0');
 }
 
+bcos::Bloom toBloom(std::string const& _hexBloom)
+{
+    auto bytes = bcos::fromHex(_hexBloom);
+    bcos::Bloom bloom{};
+    auto const copySize = std::min(bytes.size(), bloom.size());
+    std::copy_n(bytes.begin(), copySize, bloom.begin());
+    return bloom;
+}
+
 Withdrawal buildWithdrawal(uint64_t _index)
 {
     Withdrawal withdrawal;
@@ -97,11 +97,111 @@ Withdrawal buildWithdrawal(uint64_t _index)
     withdrawal.amount = quantity(1);
     return withdrawal;
 }
+
+std::vector<std::string> defaultMockTransactions()
+{
+    return {
+        "0x03f88f0780843b9aca008506fc23ac00830186a09400000000000000000000000000000000000001008080c001e1a0010657f37554c781402a22917dee2f75def7ab966d7b770905398eba3c44401401a0840650aa8f74d2b07f40067dc33b715078d73422f01da17abdbd11e02bbdfda9a04b2260f6022bf53eadb337b3e59514936f7317d872defb891a708ee279bdca90"};
+}
+
+std::tuple<bool, ForkchoiceUpdatedV3Request> decodeForkchoiceUpdatedRequestForVersion(
+    std::uint32_t _version, Json::Value const& _params)
+{
+    if (_version <= 3)
+    {
+        return decodeForkchoiceUpdatedV3Request(_params);
+    }
+
+    ForkchoiceUpdatedV3Request request;
+    if (!_params.isArray() || _params.size() < 1 || _params.size() > 3)
+    {
+        return {false, request};
+    }
+
+    if (!decodeForkchoiceState(_params[0], request.forkchoiceState))
+    {
+        return {false, request};
+    }
+
+    if (_params.size() > 1 && !_params[1].isNull())
+    {
+        PayloadAttributesV3 payloadAttributes;
+        if (!decodePayloadAttributesV3(_params[1], payloadAttributes))
+        {
+            return {false, request};
+        }
+        request.payloadAttributes = std::move(payloadAttributes);
+    }
+
+    if (_params.size() > 2 && !_params[2].isNull() && !_params[2].isString())
+    {
+        return {false, request};
+    }
+
+    return {true, std::move(request)};
+}
+
+std::tuple<bool, NewPayloadV3Request> decodeNewPayloadRequestForVersion(
+    std::uint32_t _version, Json::Value const& _params)
+{
+    if (_version <= 3)
+    {
+        return decodeNewPayloadV3Request(_params);
+    }
+
+    NewPayloadV3Request request;
+    if (!_params.isArray() || _params.size() != 4)
+    {
+        return {false, request};
+    }
+
+    if (!decodeExecutionPayloadV3(_params[0], request.executionPayload))
+    {
+        return {false, request};
+    }
+    if (!_params[1].isArray())
+    {
+        return {false, request};
+    }
+    request.expectedBlobVersionedHashes.reserve(_params[1].size());
+    for (auto const& item : _params[1])
+    {
+        if (!item.isString())
+        {
+            return {false, request};
+        }
+        request.expectedBlobVersionedHashes.emplace_back(item.asString());
+    }
+    if (!_params[2].isString())
+    {
+        return {false, request};
+    }
+    request.parentBeaconBlockRoot = _params[2].asString();
+
+    if (!_params[3].isArray())
+    {
+        return {false, request};
+    }
+    for (auto const& item : _params[3])
+    {
+        if (!item.isString())
+        {
+            return {false, request};
+        }
+    }
+
+    return {true, std::move(request)};
+}
 }  // namespace
 
 OPEngineEndpoints::OPEngineEndpoints(NodeService::Ptr _nodeService)
   : m_nodeService(std::move(_nodeService))
 {}
+
+void OPEngineEndpoints::setEngineService(bcos::engine::EngineServiceInterface::Ptr _engineService)
+{
+    m_engineService = std::move(_engineService);
+}
 
 task::Task<void> OPEngineEndpoints::exchangeCapabilities(const Json::Value&, Json::Value& _response)
 {
@@ -109,13 +209,19 @@ task::Task<void> OPEngineEndpoints::exchangeCapabilities(const Json::Value&, Jso
     result.append("engine_forkchoiceUpdatedV1");
     result.append("engine_forkchoiceUpdatedV2");
     result.append("engine_forkchoiceUpdatedV3");
+    result.append("engine_forkchoiceUpdatedV4");
     result.append("engine_getPayloadV1");
     result.append("engine_getPayloadV2");
     result.append("engine_getPayloadV3");
+    result.append("engine_getPayloadV4");
     result.append("engine_newPayloadV1");
     result.append("engine_newPayloadV2");
     result.append("engine_newPayloadV3");
+    result.append("engine_newPayloadV4");
     _response = std::move(result);
+    OPENGINE_LOG(INFO) << LOG_BADGE("exchangeCapabilities")
+                       << LOG_DESC("engine_exchangeCapabilities handled")
+                       << LOG_KV("response", printJson(_response));
     co_return;
 }
 
@@ -137,6 +243,12 @@ task::Task<void> OPEngineEndpoints::forkchoiceUpdatedV3(
     co_await handleForkchoiceUpdated(3, _request, _response);
 }
 
+task::Task<void> OPEngineEndpoints::forkchoiceUpdatedV4(
+    const Json::Value& _request, Json::Value& _response)
+{
+    co_await handleForkchoiceUpdated(4, _request, _response);
+}
+
 task::Task<void> OPEngineEndpoints::getPayloadV1(const Json::Value& _request, Json::Value& _response)
 {
     co_await handleGetPayload(1, _request, _response);
@@ -150,6 +262,11 @@ task::Task<void> OPEngineEndpoints::getPayloadV2(const Json::Value& _request, Js
 task::Task<void> OPEngineEndpoints::getPayloadV3(const Json::Value& _request, Json::Value& _response)
 {
     co_await handleGetPayload(3, _request, _response);
+}
+
+task::Task<void> OPEngineEndpoints::getPayloadV4(const Json::Value& _request, Json::Value& _response)
+{
+    co_await handleGetPayload(4, _request, _response);
 }
 
 task::Task<void> OPEngineEndpoints::newPayloadV1(const Json::Value& _request, Json::Value& _response)
@@ -167,10 +284,22 @@ task::Task<void> OPEngineEndpoints::newPayloadV3(const Json::Value& _request, Js
     co_await handleNewPayload(3, _request, _response);
 }
 
+task::Task<void> OPEngineEndpoints::newPayloadV4(const Json::Value& _request, Json::Value& _response)
+{
+    co_await handleNewPayload(4, _request, _response);
+}
+
 task::Task<void> OPEngineEndpoints::handleForkchoiceUpdated(
     std::uint32_t _version, const Json::Value& _request, Json::Value& _response)
 {
     boost::ignore_unused(_version);
+
+    // ===== ENGINE BEGIN: forkchoiceUpdated engine call skeleton =====
+    // TODO: once the real engine service is fully wired, convert the request into
+    // bcos::engine::ForkchoiceState / bcos::engine::PayloadAttributes and call:
+    //   auto result = co_await m_engineService->updateForkchoice(engineForkchoiceState, ...);
+    // Then map the returned ForkchoiceUpdatedResult into the JSON response.
+    // ===== ENGINE END: forkchoiceUpdated engine call skeleton =====
 
     // ===== MOCK BEGIN: forkchoiceUpdated mock state machine =====
     // This mock path exists only for early OP Stack integration testing.
@@ -187,7 +316,7 @@ task::Task<void> OPEngineEndpoints::handleForkchoiceUpdated(
     // 4. persist the payload build context in bcos-engine rather than local RPC memory.
     ForkchoiceUpdatedV3Request decodedRequest;
     auto const& params = _request;
-    if (auto [ok, request] = decodeForkchoiceUpdatedV3Request(params); ok)
+    if (auto [ok, request] = decodeForkchoiceUpdatedRequestForVersion(_version, params); ok)
     {
         decodedRequest = std::move(request);
     }
@@ -208,7 +337,12 @@ task::Task<void> OPEngineEndpoints::handleForkchoiceUpdated(
     Json::Value result(Json::objectValue);
     combineForkchoiceUpdatedV3Response(result, decodedResponse);
     _response = std::move(result);
+    OPENGINE_LOG(INFO) << LOG_BADGE("handleForkchoiceUpdated")
+                       << LOG_DESC("engine_forkchoiceUpdated handled")
+                       << LOG_KV("version", _version)
+                       << LOG_KV("response", printJson(_response));
     // ===== MOCK END: forkchoiceUpdated mock state machine =====
+    
     co_return;
 }
 
@@ -216,6 +350,13 @@ task::Task<void> OPEngineEndpoints::handleGetPayload(
     std::uint32_t _version, const Json::Value& _request, Json::Value& _response)
 {
     boost::ignore_unused(_version);
+
+    // ===== ENGINE BEGIN: getPayload engine call skeleton =====
+    // TODO: once the real engine service is fully wired, convert the payloadId into
+    // bcos::engine::PayloadID and call:
+    //   auto result = co_await m_engineService->getPayload(enginePayloadId, version);
+    // Then map the returned GetPayloadResult into the JSON response.
+    // ===== ENGINE END: getPayload engine call skeleton =====
 
     // ===== MOCK BEGIN: getPayload mock payload retrieval =====
     // This mock path returns a cached payload record generated earlier by forkchoiceUpdated.
@@ -246,7 +387,17 @@ task::Task<void> OPEngineEndpoints::handleGetPayload(
 
     Json::Value result(Json::objectValue);
     combineGetPayloadV3Response(result, decodedResponse);
+    if (_version >= 4)
+    {
+        result["executionRequests"] = buildMockExecutionRequests(
+            decodedResponse.executionPayload.blockHash.empty() ?
+                "0x0000000000000000000000000000000000000000000000000000000000000000" :
+                decodedResponse.executionPayload.blockHash);
+    }
     _response = std::move(result);
+    OPENGINE_LOG(INFO) << LOG_BADGE("handleGetPayload") << LOG_DESC("engine_getPayload handled")
+                       << LOG_KV("version", _version)
+                       << LOG_KV("response", printJson(_response));
     // ===== MOCK END: getPayload mock payload retrieval =====
     co_return;
 }
@@ -255,6 +406,13 @@ task::Task<void> OPEngineEndpoints::handleNewPayload(
     std::uint32_t _version, const Json::Value& _request, Json::Value& _response)
 {
     boost::ignore_unused(_version);
+
+    // ===== ENGINE BEGIN: newPayload engine call skeleton =====
+    // TODO: once the real engine service is fully wired, convert the request into
+    // bcos::engine::NewPayloadRequest and call:
+    //   auto result = co_await m_engineService->newPayload(engineRequest, version);
+    // Then map the returned PayloadStatus into the JSON response.
+    // ===== ENGINE END: newPayload engine call skeleton =====
 
     // ===== MOCK BEGIN: newPayload mock validation =====
     // This mock path accepts the submitted payload and echoes its blockHash as latestValidHash.
@@ -269,7 +427,7 @@ task::Task<void> OPEngineEndpoints::handleNewPayload(
 
     NewPayloadV3Response decodedResponse;
     decodedResponse.payloadStatus.status = "VALID";
-    if (auto [ok, request] = decodeNewPayloadV3Request(_request); ok)
+    if (auto [ok, request] = decodeNewPayloadRequestForVersion(_version, _request); ok)
     {
         decodedResponse.payloadStatus.latestValidHash = request.executionPayload.blockHash;
     }
@@ -283,6 +441,9 @@ task::Task<void> OPEngineEndpoints::handleNewPayload(
     Json::Value result(Json::objectValue);
     combineNewPayloadV3Response(result, decodedResponse);
     _response = std::move(result);
+    OPENGINE_LOG(INFO) << LOG_BADGE("handleNewPayload") << LOG_DESC("engine_newPayload handled")
+                       << LOG_KV("version", _version)
+                       << LOG_KV("response", printJson(_response));
     // ===== MOCK END: newPayload mock validation =====
     co_return;
 }
@@ -317,14 +478,22 @@ OPEngineEndpoints::MockPayloadRecord OPEngineEndpoints::buildMockPayloadRecord(
     payload.prevRandao = normalizeHash(
         _request.payloadAttributes ? _request.payloadAttributes->prevRandao : "", seed + "|prevRandao");
     payload.blockNumber = quantity(sequence);
-    payload.gasLimit = quantity(30000000);
-    payload.gasUsed = quantity(0);
+    payload.gasLimit = (_request.payloadAttributes && !_request.payloadAttributes->gasLimit.empty()) ?
+                           _request.payloadAttributes->gasLimit :
+                           quantity(30000000);
     payload.timestamp = _request.payloadAttributes ? _request.payloadAttributes->timestamp :
                                                     quantity(utcTime() / 1000);
     payload.extraData = "0x";
-    payload.baseFeePerGas = quantity(7);
+    payload.baseFeePerGas =
+        (_request.payloadAttributes && !_request.payloadAttributes->minBaseFee.empty()) ?
+            _request.payloadAttributes->minBaseFee :
+            quantity(7);
     payload.blockHash = record.blockHash;
-    payload.transactions.clear();
+    payload.transactions =
+        (_request.payloadAttributes && !_request.payloadAttributes->transactions.empty()) ?
+            _request.payloadAttributes->transactions :
+            defaultMockTransactions();
+    payload.gasUsed = quantity(std::max<std::size_t>(1, payload.transactions.size()) * 21000);
     payload.withdrawals = _request.payloadAttributes ? _request.payloadAttributes->withdrawals :
                                                       std::vector<Withdrawal>{buildWithdrawal(0), buildWithdrawal(1)};
     payload.blobGasUsed = quantity(0);
@@ -354,5 +523,130 @@ void OPEngineEndpoints::storeMockPayloadRecord(MockPayloadRecord _record)
 {
     std::lock_guard<std::mutex> lock(x_mockPayloads);
     m_mockPayloads[_record.payloadId] = std::move(_record);
+}
+
+Json::Value OPEngineEndpoints::buildMockExecutionRequests(std::string const& _payloadId)
+{
+    Json::Value executionRequests(Json::arrayValue);
+    executionRequests.append("0x");
+    executionRequests.append(keccakHex(_payloadId + "|executionRequest").substr(0, 66));
+    return executionRequests;
+}
+
+bcos::engine::EngineApiVersion OPEngineEndpoints::toEngineApiVersion(std::uint32_t _version)
+{
+    return static_cast<bcos::engine::EngineApiVersion>(_version);
+}
+
+bcos::engine::ForkchoiceState OPEngineEndpoints::toEngineForkchoiceState(
+    ForkchoiceState const& _forkchoiceState)
+{
+    return bcos::engine::ForkchoiceState{
+        .headBlockHash = bcos::h256(bcos::fromHex(_forkchoiceState.headBlockHash)),
+        .safeBlockHash = bcos::h256(bcos::fromHex(_forkchoiceState.safeBlockHash)),
+        .finalizedBlockHash = bcos::h256(bcos::fromHex(_forkchoiceState.finalizedBlockHash)),
+    };
+}
+
+bcos::engine::PayloadAttributes OPEngineEndpoints::toEnginePayloadAttributes(
+    PayloadAttributesV3 const& _payloadAttributes)
+{
+    bcos::engine::PayloadAttributes payloadAttributes;
+    payloadAttributes.timestamp = std::stoull(_payloadAttributes.timestamp.substr(2), nullptr, 16);
+    payloadAttributes.prevRandao = bcos::h256(bcos::fromHex(_payloadAttributes.prevRandao));
+    payloadAttributes.suggestedFeeRecipient =
+        bcos::Address(bcos::fromHex(_payloadAttributes.suggestedFeeRecipient));
+    if (!_payloadAttributes.withdrawals.empty())
+    {
+        std::vector<bcos::engine::WithdrawalV1> withdrawals;
+        withdrawals.reserve(_payloadAttributes.withdrawals.size());
+        for (auto const& withdrawal : _payloadAttributes.withdrawals)
+        {
+            withdrawals.emplace_back(bcos::engine::WithdrawalV1{
+                .index = u256(bcos::fromHex(withdrawal.index)),
+                .validatorIndex = u256(bcos::fromHex(withdrawal.validatorIndex)),
+                .address = bcos::Address(bcos::fromHex(withdrawal.address)),
+                .amount = u256(bcos::fromHex(withdrawal.amount)),
+            });
+        }
+        payloadAttributes.withdrawals = std::move(withdrawals);
+    }
+    if (!_payloadAttributes.parentBeaconBlockRoot.empty())
+    {
+        payloadAttributes.parentBeaconBlockRoot =
+            bcos::h256(bcos::fromHex(_payloadAttributes.parentBeaconBlockRoot));
+    }
+    return payloadAttributes;
+}
+
+bcos::engine::NewPayloadRequest OPEngineEndpoints::toEngineNewPayloadRequest(
+    NewPayloadV3Request const& _request)
+{
+    auto const& payload = _request.executionPayload;
+    bcos::engine::ExecutionPayload executionPayload{
+        .parentHash = bcos::h256(bcos::fromHex(payload.parentHash)),
+        .feeRecipient = bcos::Address(bcos::fromHex(payload.feeRecipient)),
+        .stateRoot = bcos::h256(bcos::fromHex(payload.stateRoot)),
+        .receiptsRoot = bcos::h256(bcos::fromHex(payload.receiptsRoot)),
+        .logsBloom = toBloom(payload.logsBloom),
+        .prevRandao = bcos::h256(bcos::fromHex(payload.prevRandao)),
+        .blockNumber = static_cast<bcos::protocol::BlockNumber>(std::stoull(
+            payload.blockNumber.substr(2), nullptr, 16)),
+        .gasLimit = u256(bcos::fromHex(payload.gasLimit)),
+        .gasUsed = u256(bcos::fromHex(payload.gasUsed)),
+        .timestamp = std::stoull(payload.timestamp.substr(2), nullptr, 16),
+        .extraData = bcos::fromHex(payload.extraData),
+        .baseFeePerGas = u256(bcos::fromHex(payload.baseFeePerGas)),
+        .blockHash = bcos::h256(bcos::fromHex(payload.blockHash)),
+        .transactions = {},
+        .withdrawals = std::nullopt,
+        .blobGasUsed = std::nullopt,
+        .excessBlobGas = std::nullopt,
+    };
+    // NOTE: bcos::engine::ExecutionPayload stores decoded Transaction::Ptr objects.
+    // The mock path does not need them yet, so keep the list empty here.
+    // The real implementation should decode each raw payload transaction through
+    // NodeService::blockFactory()->transactionFactory()->decodeTransaction(...).
+    if (!payload.withdrawals.empty())
+    {
+        std::vector<bcos::engine::WithdrawalV1> withdrawals;
+        withdrawals.reserve(payload.withdrawals.size());
+        for (auto const& withdrawal : payload.withdrawals)
+        {
+            withdrawals.emplace_back(bcos::engine::WithdrawalV1{
+                .index = u256(bcos::fromHex(withdrawal.index)),
+                .validatorIndex = u256(bcos::fromHex(withdrawal.validatorIndex)),
+                .address = bcos::Address(bcos::fromHex(withdrawal.address)),
+                .amount = u256(bcos::fromHex(withdrawal.amount)),
+            });
+        }
+        executionPayload.withdrawals = std::move(withdrawals);
+    }
+    if (!payload.blobGasUsed.empty())
+    {
+        executionPayload.blobGasUsed = u256(bcos::fromHex(payload.blobGasUsed));
+    }
+    if (!payload.excessBlobGas.empty())
+    {
+        executionPayload.excessBlobGas = u256(bcos::fromHex(payload.excessBlobGas));
+    }
+
+    bcos::engine::NewPayloadRequest request;
+    request.executionPayload = std::move(executionPayload);
+    for (auto const& hash : _request.expectedBlobVersionedHashes)
+    {
+        request.expectedBlobVersionedHashes.emplace_back(bcos::h256(bcos::fromHex(hash)));
+    }
+    if (!_request.parentBeaconBlockRoot.empty())
+    {
+        request.parentBeaconBlockRoot =
+            bcos::h256(bcos::fromHex(_request.parentBeaconBlockRoot));
+    }
+    return request;
+}
+
+bcos::engine::PayloadID OPEngineEndpoints::toEnginePayloadId(std::string const& _payloadId)
+{
+    return _payloadId;
 }
 }  // namespace bcos::rpc

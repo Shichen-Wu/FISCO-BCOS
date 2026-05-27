@@ -415,14 +415,12 @@ bcos::rpc::JsonRpcImpl_2_0::Ptr RpcFactory::buildJsonRpc(int sendTxTimeout,
 }
 
 bcos::rpc::Web3JsonRpcImpl::Ptr RpcFactory::buildWeb3JsonRpc(
-    int sendTxTimeout, boostssl::ws::WsService::Ptr _wsService, GroupManager::Ptr _groupManager)
+    int sendTxTimeout, boostssl::ws::WsService::Ptr _wsService, GroupManager::Ptr _groupManager,
+    FilterSystem::Ptr _filterSystem)
 {
-    auto web3FilterSystem =
-        std::make_shared<Web3FilterSystem>(_groupManager, m_nodeConfig->groupId(),
-            m_nodeConfig->web3FilterTimeout(), m_nodeConfig->web3MaxProcessBlock());
     auto web3JsonRpc = std::make_shared<Web3JsonRpcImpl>(m_nodeConfig->groupId(),
         m_nodeConfig->web3BatchRequestSizeLimit(), std::move(_groupManager), m_gateway, _wsService,
-        web3FilterSystem, m_nodeConfig->web3SyncTransaction());
+        std::move(_filterSystem), m_nodeConfig->web3SyncTransaction());
 
     if (auto httpServer = _wsService->httpServer())
     {
@@ -454,11 +452,12 @@ bcos::rpc::Web3JsonRpcImpl::Ptr RpcFactory::buildWeb3JsonRpc(
 }
 
 bcos::rpc::OPEngineJsonRpcImpl::Ptr RpcFactory::buildOpEngineJsonRpc(
-    boostssl::ws::WsService::Ptr _wsService, GroupManager::Ptr _groupManager)
+    boostssl::ws::WsService::Ptr _wsService, GroupManager::Ptr _groupManager,
+    FilterSystem::Ptr _filterSystem)
 {
-    auto opEngineJsonRpc = std::make_shared<OPEngineJsonRpcImpl>(
+    auto opEngineJsonRpc = bcos::rpc::OPEngineJsonRpcImpl::Ptr(new OPEngineJsonRpcImpl(
         m_nodeConfig->groupId(), m_nodeConfig->opEngineBatchRequestSizeLimit(), _groupManager,
-        m_gateway, _wsService);
+        m_gateway, _wsService, std::move(_filterSystem), m_nodeConfig->web3SyncTransaction()));
 
     if (auto httpServer = _wsService->httpServer())
     {
@@ -502,7 +501,11 @@ Rpc::Ptr RpcFactory::buildRpc(std::string const& _gatewayServiceName,
     {
         auto opEngineConfig = initOpEngineRpcServiceConfig(m_nodeConfig);
         auto opEngineWsService = buildWsService(std::move(opEngineConfig));
-        auto opEngineJsonRpc = buildOpEngineJsonRpc(opEngineWsService, groupManager);
+        auto opEngineFilterSystem =
+            std::make_shared<Web3FilterSystem>(groupManager, m_nodeConfig->groupId(),
+                m_nodeConfig->web3FilterTimeout(), m_nodeConfig->web3MaxProcessBlock());
+        auto opEngineJsonRpc =
+            buildOpEngineJsonRpc(opEngineWsService, groupManager, opEngineFilterSystem);
 
         rpc->setOpEngineService(opEngineWsService);
         rpc->setOpEngineJsonRpcImpl(std::move(opEngineJsonRpc));
@@ -518,11 +521,15 @@ Rpc::Ptr RpcFactory::buildLocalRpc(
     auto groupManager = buildAirGroupManager(_groupInfo, _nodeService);
     auto amopClient = buildAirAMOPClient(wsService);
     auto rpc = buildRpc(m_nodeConfig->sendTxTimeout(), wsService, groupManager, amopClient);
+    auto web3FilterSystem = std::make_shared<Web3FilterSystem>(groupManager, m_nodeConfig->groupId(),
+        m_nodeConfig->web3FilterTimeout(), m_nodeConfig->web3MaxProcessBlock());
+
     if (m_nodeConfig->enableOpEngineRpc())
     {
         auto opEngineConfig = initOpEngineRpcServiceConfig(m_nodeConfig);
         auto opEngineWsService = buildWsService(std::move(opEngineConfig));
-        auto opEngineJsonRpc = buildOpEngineJsonRpc(opEngineWsService, groupManager);
+        auto opEngineJsonRpc =
+            buildOpEngineJsonRpc(opEngineWsService, groupManager, web3FilterSystem);
 
         rpc->setOpEngineService(opEngineWsService);
         rpc->setOpEngineJsonRpcImpl(std::move(opEngineJsonRpc));
@@ -532,8 +539,8 @@ Rpc::Ptr RpcFactory::buildLocalRpc(
         auto web3Config = initWeb3RpcServiceConfig(m_nodeConfig);
         auto web3WsService = buildWsService(std::move(web3Config));
 
-        auto web3JsonRpc =
-            buildWeb3JsonRpc(m_nodeConfig->sendTxTimeout(), web3WsService, groupManager);
+        auto web3JsonRpc = buildWeb3JsonRpc(
+            m_nodeConfig->sendTxTimeout(), web3WsService, groupManager, web3FilterSystem);
 
         auto weakPtrWeb3JsonRpc = std::weak_ptr<Web3JsonRpcImpl>(web3JsonRpc);
 

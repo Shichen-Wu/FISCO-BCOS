@@ -49,6 +49,11 @@ struct PayloadAttributesV3
     std::string suggestedFeeRecipient;
     std::vector<Withdrawal> withdrawals;
     std::string parentBeaconBlockRoot;
+    std::vector<std::string> transactions;
+    bool noTxPool{false};
+    std::string gasLimit;
+    std::string eip1559Params;
+    std::string minBaseFee;
 };
 
 struct PayloadStatus
@@ -102,4 +107,3 @@ void appendPayloadStatus(Json::Value& _result, PayloadStatus const& _payloadStat
 void appendExecutionPayloadV3(Json::Value& _result, ExecutionPayloadV3 const& _executionPayload);
 void appendBlobsBundle(Json::Value& _result, BlobsBundle const& _blobsBundle);
 }  // namespace bcos::rpc
-

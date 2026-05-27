@@ -166,7 +166,8 @@ bool JwtVerifier::verifyIat(std::optional<int64_t> _iat) const
         return true;
     }
 
-    auto now = static_cast<int64_t>(utcTime());
+    // JWT iat follows NumericDate in seconds, while utcTime() returns milliseconds.
+    auto now = static_cast<int64_t>(utcTime() / 1000);
     auto skew = m_config ? m_config->clockSkewSecs() : 0;
     return (*_iat >= (now - skew)) && (*_iat <= (now + skew));
 }
