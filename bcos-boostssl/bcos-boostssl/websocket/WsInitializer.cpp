@@ -32,9 +32,7 @@
 #include <bcos-boostssl/websocket/WsTools.h>
 #include <bcos-utilities/BoostLog.h>
 #include <bcos-utilities/IOServicePool.h>
-#include <bcos-utilities/ThreadPool.h>
 #include <boost/system/detail/error_code.hpp>
-#include <cstddef>
 
 using namespace bcos;
 using namespace bcos::boostssl;
@@ -89,7 +87,12 @@ void WsInitializer::initWsService(WsService::Ptr _wsService)
     }
 
     auto wsServiceWeakPtr = std::weak_ptr<WsService>(_wsService);
-    auto ioServicePool = std::make_shared<IOServicePool>();
+    if (!m_ioServicePool)
+    {
+        BOOST_THROW_EXCEPTION(
+            InvalidParameter() << errinfo_comment("IOServicePool must be set in WsInitializer!"));
+    }
+    auto ioServicePool = m_ioServicePool;
     _wsService->setIOServicePool(ioServicePool);
 
     auto resolver =
@@ -206,11 +209,8 @@ void WsInitializer::initWsService(WsService::Ptr _wsService)
         }
     }
 
-    auto threadPoolSize = _config->threadPoolSize();
-    if (threadPoolSize > 0)
-    {
-        _wsService->initTaskArena(threadPoolSize);
-    }
+    // Note: IOServicePool must be set before starting wsService.
+    // The threadPoolSize was previously used for tbb::task_arena, now IOServicePool handles it.
 
     connector->setCtx(clientCtx);
     connector->setBuilder(builder);

@@ -61,8 +61,8 @@ void AirNodeInitializer::init(std::string const& _configFilePath, std::string co
     m_nodeInitializer = std::make_shared<bcos::initializer::Initializer>();
     m_nodeInitializer->initConfig(_configFilePath, _genesisFile, "", true);
 
-    auto ioServicePool = std::make_shared<bcos::IOServicePool>();
-    ioServicePool->start();
+    auto ioServicePool =
+        std::make_shared<bcos::IOServicePool>(std::thread::hardware_concurrency() + 1, "io");
     m_nodeInitializer->setIOServicePool(ioServicePool);
 
     // create gateway
@@ -91,6 +91,7 @@ void AirNodeInitializer::init(std::string const& _configFilePath, std::string co
         m_nodeInitializer->protocolInitializer()->getKeyEncryptionByType(
             nodeConfig->keyEncryptionType()));
     rpcFactory.setNodeConfig(nodeConfig);
+    rpcFactory.setIOServicePool(ioServicePool);
     m_rpc = rpcFactory.buildLocalRpc(groupInfo, nodeService);
     if (gateway->amop())
     {

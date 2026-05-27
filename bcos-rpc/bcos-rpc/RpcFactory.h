@@ -33,6 +33,7 @@
 #include "bcos-rpc/groupmgr/GroupManager.h"
 #include "bcos-rpc/jsonrpc/JsonRpcImpl_2_0.h"
 #include "bcos-tool/NodeConfig.h"
+#include "bcos-utilities/IOServicePool.h"
 #include "web3jsonrpc/Web3JsonRpcImpl.h"
 #include <utility>
 
@@ -77,6 +78,11 @@ public:
         m_nodeConfig = std::move(_nodeConfig);
     }
 
+    void setIOServicePool(bcos::IOServicePool::Ptr _ioServicePool)
+    {
+        m_ioServicePool = std::move(_ioServicePool);
+    }
+
 protected:
     // for groupManager builder
     GroupManager::Ptr buildGroupManager(std::string const& _rpcServiceName,
@@ -110,6 +116,7 @@ private:
     std::shared_ptr<bcos::crypto::KeyFactory> m_keyFactory;
     bcos::tool::NodeConfig::Ptr m_nodeConfig;
     bcos::security::KeyEncryptInterface::Ptr m_dataEncrypt;
+    bcos::IOServicePool::Ptr m_ioServicePool;
 };
 }  // namespace rpc
 }  // namespace bcos
