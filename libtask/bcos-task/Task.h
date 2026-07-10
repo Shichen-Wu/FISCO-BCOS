@@ -104,8 +104,7 @@ struct Awaitable
     ~Awaitable() noexcept = default;
 
     bool await_ready() const noexcept { return !m_handle || m_handle.done(); }
-    template <class Promise>
-    std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> handle)
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle)
     {
         m_continuation.handle = handle;
         m_handle.promise().m_continuation = std::addressof(m_continuation);
@@ -159,6 +158,7 @@ public:
         }
         m_handle = task.m_handle;
         task.m_handle = nullptr;
+        return *this;
     }
     ~Task() noexcept
     {
