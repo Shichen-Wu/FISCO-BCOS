@@ -96,19 +96,21 @@ template <class TaskType>
 struct Awaitable
 {
     explicit Awaitable(std::coroutine_handle<typename TaskType::promise_type> handle)
-      : m_handle(std::move(handle)) {};
+      { m_continuation.handle = std::move(handle);}
     Awaitable(const Awaitable&) = delete;
     Awaitable(Awaitable&&) noexcept = default;
     Awaitable& operator=(const Awaitable&) = delete;
     Awaitable& operator=(Awaitable&&) noexcept = default;
     ~Awaitable() noexcept = default;
 
-    bool await_ready() const noexcept { return !m_handle || m_handle.done(); }
+    bool await_ready() const noexcept { return !m_continuation.handle || m_continuation.handle.done(); }
     std::coroutine_handle<> await_suspend(std::coroutine_handle<> handle)
     {
+        auto nextHandle = 
+            std::coroutine_handle<typename TaskType::promise_type>::from_address(m_continuation.handle.address());
         m_continuation.handle = handle;
-        m_handle.promise().m_continuation = std::addressof(m_continuation);
-        return m_handle;
+        nextHandle.promise().m_continuation = std::addressof(m_continuation);
+        return nextHandle;
     }
     TaskType::Value await_resume()
     {
@@ -128,7 +130,6 @@ struct Awaitable
         }
     }
 
-    std::coroutine_handle<typename TaskType::promise_type> m_handle;
     Continuation<typename TaskType::VariantValue> m_continuation;
 };
 
