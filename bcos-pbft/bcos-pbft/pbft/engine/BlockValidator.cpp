@@ -20,6 +20,8 @@
  */
 #include "BlockValidator.h"
 #include "../utilities/Common.h"
+#include <bcos-BLS/bls-verifier/src/BlsVerifier.h>
+#include <bcos-utilities/DataConvertUtility.h>
 using namespace bcos;
 using namespace bcos::consensus;
 using namespace bcos::protocol;
@@ -65,6 +67,11 @@ void BlockValidator::asyncCheckBlock(
                     {
                         verifyResult = validator->checkSealerListAndWeightList(_block) &&
                                        validator->checkSignatureList(_block);
+                    }
+                    // BLS aggregated signature verification (independent of transaction count)
+                    if (verifyResult)
+                    {
+                        verifyResult = validator->checkBlsAggregatedSignature(_block);
                     }
                 }
             }
@@ -191,4 +198,53 @@ bool BlockValidator::checkSignatureList(Block::Ptr _block)
         return false;
     }
     return true;
+}
+
+bool BlockValidator::checkBlsAggregatedSignature(Block::Ptr _block)
+{
+    auto blockHeader = _block->blockHeader();
+    auto sigBytes = blockHeader->aggregatedBlsSignature();
+    auto bitmapBytes = blockHeader->groupBitmap();
+
+    // no BLS aggregated signature in this block, skip verification
+    if (sigBytes.empty() || bitmapBytes.empty())
+    {
+        return true;
+    }
+
+    // the signed message is the first parent block's hash
+    bcos::crypto::HashType parentHash;
+    bool foundParent = false;
+    for (const auto& parent : blockHeader->parentInfo())
+    {
+        parentHash = parent.blockHash;
+        foundParent = true;
+        break;
+    }
+    if (!foundParent)
+    {
+        PBFT_LOG(WARNING) << LOG_DESC("checkBlsAggregatedSignature: genesis block has BLS signature")
+                          << LOG_KV("number", blockHeader->number());
+        return false;
+    }
+
+    auto parentHashHex = std::string("0x") + parentHash.hex();
+    auto aggSigHex = std::string("0x") + toHex(sigBytes);
+    auto bitmapHex = std::string("0x") + toHex(bitmapBytes);
+
+    auto& verifier = BlsVerifier::instance();
+    if (!verifier.initialized())
+    {
+        PBFT_LOG(ERROR) << LOG_DESC("checkBlsAggregatedSignature: BlsVerifier not initialized");
+        return false;
+    }
+
+    bool result = verifier.verify(aggSigHex, bitmapHex, parentHashHex);
+    if (!result)
+    {
+        PBFT_LOG(ERROR) << LOG_DESC("checkBlsAggregatedSignature: BLS verification failed")
+                        << LOG_KV("number", blockHeader->number())
+                        << LOG_KV("parentHash", parentHashHex);
+    }
+    return result;
 }

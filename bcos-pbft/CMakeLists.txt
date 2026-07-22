@@ -51,6 +51,14 @@ target_include_directories(pbft PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<BUILD_INTERFACE:${PROTO_OUTPUT_PATH}>)
 target_link_libraries(pbft PUBLIC txpool ledger bcos-utilities tool bcos-framework bcos-protocol jsoncpp_static)
+# BLS headers (used by BlockValidator.cpp)
+set(BLS_ROOT "${CMAKE_SOURCE_DIR}/bcos-BLS/deps/bls")
+set(BLSV_SRC "${CMAKE_SOURCE_DIR}/bcos-BLS/bls-verifier/src")
+target_include_directories(pbft PUBLIC
+    ${BLS_ROOT}/mcl/include ${BLS_ROOT}/include ${BLSV_SRC}
+    ${CMAKE_SOURCE_DIR}/bcos-BLS ${CMAKE_SOURCE_DIR}
+)
+target_compile_definitions(pbft PUBLIC MCLBN_FP_UNIT_SIZE=6 MCLBN_FR_UNIT_SIZE=4)
 set_source_files_properties(
     "bcos-pbft/pbft/protocol/proto/PBFT.pb.cc"
     "bcos-pbft/core/proto/Consensus.pb.cc"

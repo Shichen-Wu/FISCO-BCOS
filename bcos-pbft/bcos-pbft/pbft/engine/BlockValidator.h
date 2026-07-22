@@ -49,6 +49,7 @@ public:
 protected:
     virtual bool checkSealerListAndWeightList(bcos::protocol::Block::Ptr _block);
     virtual bool checkSignatureList(bcos::protocol::Block::Ptr _block);
+    virtual bool checkBlsAggregatedSignature(bcos::protocol::Block::Ptr _block);
 
 private:
     PBFTConfig::Ptr m_config;

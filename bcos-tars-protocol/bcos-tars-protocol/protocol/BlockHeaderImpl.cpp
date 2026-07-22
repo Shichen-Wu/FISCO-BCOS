@@ -252,6 +252,13 @@ void bcostars::protocol::BlockHeaderImpl::setSignatureList(
 {
     setSignatureList(gsl::span(_signatureList.data(), _signatureList.size()));
 }
+void bcostars::protocol::BlockHeaderImpl::setBlsAggregatedSignature(
+    bcos::bytes const& _sig, bcos::bytes const& _bitmap)
+{
+    m_inner()->blsAggregatedSignature.aggregatedSignature.assign(_sig.begin(), _sig.end());
+    m_inner()->blsAggregatedSignature.groupBitmap.assign(_bitmap.begin(), _bitmap.end());
+    // Note: blsAggregatedSignature is not part of dataHash (same as signatureList)
+}
 const bcostars::BlockHeader& bcostars::protocol::BlockHeaderImpl::inner() const
 {
     return *m_inner();
@@ -304,4 +311,14 @@ int64_t bcostars::protocol::BlockHeaderImpl::timestamp() const
 int64_t bcostars::protocol::BlockHeaderImpl::sealer() const
 {
     return m_inner()->data.sealer;
+}
+bcos::bytes bcostars::protocol::BlockHeaderImpl::aggregatedBlsSignature() const
+{
+    return {m_inner()->blsAggregatedSignature.aggregatedSignature.begin(),
+        m_inner()->blsAggregatedSignature.aggregatedSignature.end()};
+}
+bcos::bytes bcostars::protocol::BlockHeaderImpl::groupBitmap() const
+{
+    return {m_inner()->blsAggregatedSignature.groupBitmap.begin(),
+        m_inner()->blsAggregatedSignature.groupBitmap.end()};
 }

@@ -2,6 +2,10 @@ find_package(Boost REQUIRED program_options)
 find_package(jsoncpp CONFIG REQUIRED)
 find_package(tomlplusplus CONFIG REQUIRED)
 
+# BlsVerifier paths (used by init and pbft_init)
+set(BLS_ROOT "${CMAKE_SOURCE_DIR}/bcos-BLS/deps/bls")
+set(BLSV_SRC "${CMAKE_SOURCE_DIR}/bcos-BLS/bls-verifier/src")
+
 # --- External-use targets: referenced outside libinitializer, must remain separate ---
 
 # command: used by fisco-bcos-air, tars RpcService/GatewayService/ExecutorService/SchedulerService/NodeService
@@ -17,6 +21,19 @@ target_link_libraries(protocol_init PUBLIC
 # pbft_init: used by fisco-bcos-air, NodeService, storage-tool, archive-tool, hsm-tool
 add_library(pbft_init PBFTInitializer.cpp ProPBFTInitializer.cpp)
 target_link_libraries(pbft_init PUBLIC protocol_init ledger tool sealer rpbft pbft sync storage)
+# BlsVerifier include paths (used by sealer and BlockValidator)
+target_include_directories(pbft_init PUBLIC
+    ${BLS_ROOT}/mcl/include
+    ${BLS_ROOT}/include
+    ${BLSV_SRC}
+    ${CMAKE_SOURCE_DIR}/bcos-BLS
+    ${CMAKE_SOURCE_DIR}
+)
+target_link_libraries(pbft_init PUBLIC
+    ${BLS_ROOT}/lib/libbls384_256.a
+    ${BLS_ROOT}/mcl/lib/libmcl.a
+)
+target_compile_definitions(pbft_init PUBLIC MCLBN_FP_UNIT_SIZE=6 MCLBN_FR_UNIT_SIZE=4)
 set_target_properties(pbft_init PROPERTIES UNITY_BUILD "ON")
 add_dependencies(pbft_init BuildInfo.h)
 if(WITH_LEDGER_ELECTION)
@@ -45,6 +62,21 @@ target_link_libraries(init PUBLIC
     bcos-boostssl
     tomlplusplus::tomlplusplus
 )
+
+# BlsVerifier for million-node BLS signature verification
+target_sources(init PRIVATE ${BLSV_SRC}/BlsVerifier.cpp)
+target_include_directories(init PUBLIC
+    ${BLS_ROOT}/mcl/include
+    ${BLS_ROOT}/include
+    ${BLSV_SRC}
+    ${CMAKE_SOURCE_DIR}/bcos-BLS
+    ${CMAKE_SOURCE_DIR}
+)
+target_link_libraries(init PUBLIC
+    ${BLS_ROOT}/lib/libbls384_256.a
+    ${BLS_ROOT}/mcl/lib/libmcl.a
+)
+target_compile_definitions(init PUBLIC MCLBN_FP_UNIT_SIZE=6 MCLBN_FR_UNIT_SIZE=4)
 if(WITH_LEDGER_ELECTION)
     target_link_libraries(init PUBLIC leader_election)
 endif()

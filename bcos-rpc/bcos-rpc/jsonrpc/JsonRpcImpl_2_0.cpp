@@ -34,6 +34,7 @@
 #include "bcos-rpc/web3jsonrpc/model/Web3Transaction.h"
 #include "bcos-utilities/Base64.h"
 #include "bcos-utilities/BoostLog.h"
+#include <bcos-BLS/bls-verifier/src/BlsVerifier.h>
 #include <json/value.h>
 #include <boost/algorithm/hex.hpp>
 #include <boost/algorithm/string/case_conv.hpp>
@@ -1555,4 +1556,85 @@ void JsonRpcImpl_2_0::execCall(
             }
             m_respFunc(_error, jResp);
         });
+}
+
+// ============================================================================
+// BLS million-node signature interfaces
+// ============================================================================
+
+void JsonRpcImpl_2_0::addGroupPublicKey(std::string_view _groupID, int _blsGroupId,
+    std::string_view _pubkeyHex, RespFunc _respFunc)
+{
+    RPC_IMPL_LOG(INFO) << LOG_BADGE("addGroupPublicKey")
+                       << LOG_KV("group", _groupID) << LOG_KV("blsGroupId", _blsGroupId);
+
+    auto& verifier = BlsVerifier::instance();
+    if (!verifier.initialized())
+    {
+        auto error = BCOS_ERROR_PTR(BlsVerifier::ERR_NOT_INITIALIZED, "BlsVerifier not initialized");
+        Json::Value jResp;
+        jResp["code"] = BlsVerifier::ERR_NOT_INITIALIZED;
+        jResp["message"] = "BlsVerifier not initialized";
+        _respFunc(error, jResp);
+        return;
+    }
+
+    int rc = verifier.setGroupPublicKey(
+        static_cast<uint32_t>(_blsGroupId), std::string(_pubkeyHex));
+
+    Json::Value jResp;
+    jResp["code"] = rc;
+    jResp["message"] = (rc == BlsVerifier::OK) ? "success" : "failed";
+
+    if (rc != BlsVerifier::OK)
+    {
+        auto error = BCOS_ERROR_PTR(rc, "Failed to set group public key");
+        _respFunc(error, jResp);
+        return;
+    }
+
+    _respFunc(nullptr, jResp);
+    RPC_IMPL_LOG(INFO) << LOG_BADGE("addGroupPublicKey") << LOG_DESC("success")
+                       << LOG_KV("blsGroupId", _blsGroupId);
+}
+
+void JsonRpcImpl_2_0::submitBlsAggregatedSignature(std::string_view _groupID,
+    std::string_view _aggSigHex, std::string_view _bitmapHex,
+    std::string_view _signedBlockHash, RespFunc _respFunc)
+{
+    RPC_IMPL_LOG(INFO) << LOG_BADGE("submitBlsAggregatedSignature")
+                       << LOG_KV("group", _groupID)
+                       << LOG_KV("signedBlockHash", _signedBlockHash);
+
+    auto& verifier = BlsVerifier::instance();
+    if (!verifier.initialized())
+    {
+        auto error = BCOS_ERROR_PTR(BlsVerifier::ERR_NOT_INITIALIZED,
+            "BlsVerifier not initialized");
+        Json::Value jResp;
+        jResp["code"] = BlsVerifier::ERR_NOT_INITIALIZED;
+        jResp["message"] = "BlsVerifier not initialized";
+        _respFunc(error, jResp);
+        return;
+    }
+
+    int rc = verifier.setPendingBlsSignature(
+        std::string(_aggSigHex), std::string(_bitmapHex), std::string(_signedBlockHash));
+
+    Json::Value jResp;
+    jResp["code"] = rc;
+    if (rc == BlsVerifier::OK)
+    {
+        jResp["message"] = "verify success, signature stored for next block";
+        _respFunc(nullptr, jResp);
+        RPC_IMPL_LOG(INFO) << LOG_BADGE("submitBlsAggregatedSignature")
+                           << LOG_DESC("verified and stored for next block");
+    }
+    else
+    {
+        jResp["message"] = (rc == BlsVerifier::ERR_VERIFY_FAILED) ?
+            "BLS signature verification failed" : "failed";
+        auto error = BCOS_ERROR_PTR(rc, jResp["message"].asString());
+        _respFunc(error, jResp);
+    }
 }

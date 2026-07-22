@@ -27,6 +27,14 @@ target_include_directories(sealer PUBLIC
 find_package(tarscpp REQUIRED)
 
 target_link_libraries(sealer PUBLIC tool bcos-utilities bcos-framework txpool pbft protocol-tars)
+# BLS headers (used by Sealer.cpp)
+set(BLS_ROOT "${CMAKE_SOURCE_DIR}/bcos-BLS/deps/bls")
+set(BLSV_SRC "${CMAKE_SOURCE_DIR}/bcos-BLS/bls-verifier/src")
+target_include_directories(sealer PUBLIC
+    ${BLS_ROOT}/mcl/include ${BLS_ROOT}/include ${BLSV_SRC}
+    ${CMAKE_SOURCE_DIR}/bcos-BLS ${CMAKE_SOURCE_DIR}
+)
+target_compile_definitions(sealer PUBLIC MCLBN_FP_UNIT_SIZE=6 MCLBN_FR_UNIT_SIZE=4)
 set_target_properties(sealer PROPERTIES UNITY_BUILD "ON")
 
 if(TESTS)

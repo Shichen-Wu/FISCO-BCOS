@@ -88,6 +88,14 @@ void JsonRpcInterface::initMethod()
         getGroupNodeInfoI(params, std::move(callback));
     };
 
+    // BLS million-node signature interfaces
+    m_methodToFunc["addGroupPublicKey"] = [this](ParamsType params, CallbackType callback) {
+        addGroupPublicKeyI(params, std::move(callback));
+    };
+    m_methodToFunc["submitBlsAggregatedSignature"] = [this](ParamsType params, CallbackType callback) {
+        submitBlsAggregatedSignatureI(params, std::move(callback));
+    };
+
     // filter interface
     m_methodToFunc["newBlockFilter"] = [this](ParamsType params, CallbackType callback) {
         newBlockFilterI(params, std::move(callback));

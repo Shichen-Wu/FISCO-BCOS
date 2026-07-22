@@ -70,6 +70,10 @@ public:
     gsl::span<const bcos::protocol::Signature> signatureList() const override;
     gsl::span<const uint64_t> consensusWeights() const override;
 
+    // BLS aggregated signature
+    bcos::bytes aggregatedBlsSignature() const override;
+    bcos::bytes groupBitmap() const override;
+
     void setVersion(uint32_t _version) override;
     void setParentInfo(::ranges::any_view<bcos::protocol::ParentInfo> parentInfo) override;
     void setTxsRoot(bcos::crypto::HashType _txsRoot) override;
@@ -88,6 +92,9 @@ public:
     void setSignatureList(
         gsl::span<const bcos::protocol::Signature> const& _signatureList) override;
     void setSignatureList(bcos::protocol::SignatureList&& _signatureList) override;
+
+    void setBlsAggregatedSignature(
+        bcos::bytes const& _sig, bcos::bytes const& _bitmap) override;
 
 
     const bcostars::BlockHeader& inner() const;

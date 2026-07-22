@@ -1,0 +1,10 @@
+{
+    "group_id": 1,
+    "total_nodes": 4000,
+    "threshold": 3400,
+    "num_aggregators": 10,
+    "block_hash": "",
+    "output_dir": "./output",
+    "leader_address": "127.0.0.1:9000",
+    "network_mode": false
+}

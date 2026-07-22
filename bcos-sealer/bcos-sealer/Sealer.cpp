@@ -21,8 +21,10 @@
 #include "Common.h"
 #include "VRFBasedSealer.h"
 #include "bcos-framework/ledger/Features.h"
+#include <bcos-BLS/bls-verifier/src/BlsVerifier.h>
 #include <bcos-framework/protocol/GlobalConfig.h>
 #include <bcos-utilities/ITTAPI.h>
+#include <boost/algorithm/hex.hpp>
 #include <boost/chrono/duration.hpp>
 #include <chrono>
 #include <range/v3/view/transform.hpp>
@@ -221,6 +223,30 @@ void Sealer::submitProposal(bool _containSysTxs, bcos::protocol::Block::Ptr _blo
     auto version = std::min(m_sealerConfig->consensus()->compatibilityVersion(),
         (uint32_t)g_BCOSConfig.maxSupportedVersion());
     _block->blockHeader()->setVersion(version);
+    // write pending BLS aggregated signature into block header (from Leader via RPC)
+    auto& blsVerifier = BlsVerifier::instance();
+    if (blsVerifier.initialized() && blsVerifier.hasPendingBlsSignature())
+    {
+        std::string aggSigHex, bitmapHex;
+        blsVerifier.getPendingBlsSignature(aggSigHex, bitmapHex);
+        // strip "0x" prefix if present, then hex-decode to bytes
+        if (aggSigHex.size() >= 2 && aggSigHex[0] == '0' && aggSigHex[1] == 'x')
+        {
+            aggSigHex = aggSigHex.substr(2);
+        }
+        if (bitmapHex.size() >= 2 && bitmapHex[0] == '0' && bitmapHex[1] == 'x')
+        {
+            bitmapHex = bitmapHex.substr(2);
+        }
+        bcos::bytes sigBytes;
+        bcos::bytes bitmapBytes;
+        boost::algorithm::unhex(aggSigHex.begin(), aggSigHex.end(), std::back_inserter(sigBytes));
+        boost::algorithm::unhex(bitmapHex.begin(), bitmapHex.end(), std::back_inserter(bitmapBytes));
+        _block->blockHeader()->setBlsAggregatedSignature(sigBytes, bitmapBytes);
+        blsVerifier.clearPendingBlsSignature();
+        SEAL_LOG(INFO) << LOG_DESC("BLS aggregated signature written to block header")
+                       << LOG_KV("number", _block->blockHeader()->number());
+    }
     // FIB-142: bind transaction commitment to proposal hash before hashing.
     // Without this, byzantine leader can equivocate under same proposalHash.
     auto txsRoot = _block->calculateTransactionRoot(*m_hashImpl);

@@ -33,6 +33,7 @@
 #include "MemPoolInitializer.h"
 #include "SchedulerInitializer.h"
 #include "StorageInitializer.h"
+#include "bcos-BLS/bls-verifier/src/BlsVerifier.h"
 #include "bcos-executor/src/executor/SwitchExecutorManager.h"
 #include "bcos-framework/dispatcher/SchedulerInterface.h"
 #include "bcos-framework/ledger/Ledger.h"
@@ -477,6 +478,10 @@ void Initializer::init(bcos::protocol::NodeArchitectureType _nodeArchType,
     // Note: must init PBFT after txpool, in case of pbft calls txpool to verifyBlock before
     // txpool init finished
     m_pbftInitializer->init();
+
+    // init BlsVerifier for million-node BLS signature verification
+    // (public keys are registered later via RPC, not at startup)
+    BlsVerifier::instance().init();
 
     // init the frontService
     m_frontServiceInitializer->init(

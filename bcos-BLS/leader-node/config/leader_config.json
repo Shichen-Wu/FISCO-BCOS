@@ -1,0 +1,12 @@
+{
+    "total_groups": 256,
+    "min_group_threshold": 205,
+    "block_hash": "",
+    "group_pubkeys_file": "./output/group_pubkeys.json",
+    "group_sigs_dir": "./output/group_sigs",
+    "output_dir": "./output",
+    "contract_address": "",
+    "contract_abi_file": "",
+    "fisco_nodes": [],
+    "generate_test_data": false
+}

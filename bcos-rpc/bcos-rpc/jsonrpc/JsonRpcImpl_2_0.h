@@ -132,6 +132,13 @@ public:
 
     void getGroupBlockNumber(RespFunc _respFunc) override;
 
+    // BLS million-node signature interfaces
+    void addGroupPublicKey(std::string_view _groupID, int _blsGroupId,
+        std::string_view _pubkeyHex, RespFunc _respFunc) override;
+    void submitBlsAggregatedSignature(std::string_view _groupID, std::string_view _aggSigHex,
+        std::string_view _bitmapHex, std::string_view _signedBlockHash,
+        RespFunc _respFunc) override;
+
     void setNodeInfo(const NodeInfo& _nodeInfo) { m_nodeInfo = _nodeInfo; }
     NodeInfo nodeInfo() const { return m_nodeInfo; }
     GroupManager::Ptr groupManager() { return m_groupManager; }

@@ -141,10 +141,17 @@ public:
     virtual void setSignatureList(gsl::span<const Signature> const& _signatureList) = 0;
     virtual void setSignatureList(SignatureList&& _signatureList) = 0;
 
+    // BLS aggregated signature (for million-node threshold signature verification)
+    virtual bcos::bytes aggregatedBlsSignature() const { return {}; }
+    virtual bcos::bytes groupBitmap() const { return {}; }
+    virtual void setBlsAggregatedSignature(
+        bcos::bytes const& /*_sig*/, bcos::bytes const& /*_bitmap*/)
+    {}
+
     virtual size_t size() const = 0;
 };
 
-using AnyBlockHeader = AnyHolder<BlockHeader, 72>;  // 多平台BlockHeaderImpl的最大尺寸 (Maximum size
-                                                    // of BlockHeaderImpl across platforms)
+using AnyBlockHeader = AnyHolder<BlockHeader, 128>;  // 多平台BlockHeaderImpl的最大尺寸 (Maximum size
+                                                     // of BlockHeaderImpl across platforms)
 
 }  // namespace bcos::protocol

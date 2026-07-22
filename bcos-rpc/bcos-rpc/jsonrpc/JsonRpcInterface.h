@@ -120,6 +120,13 @@ public:
 
     virtual void getGroupBlockNumber(RespFunc _respFunc) = 0;
 
+    // BLS million-node signature interfaces
+    virtual void addGroupPublicKey(std::string_view _groupID, int _blsGroupId,
+        std::string_view _pubkeyHex, RespFunc _respFunc) = 0;
+    virtual void submitBlsAggregatedSignature(std::string_view _groupID,
+        std::string_view _aggSigHex, std::string_view _bitmapHex,
+        std::string_view _signedBlockHash, RespFunc _respFunc) = 0;
+
     // filter interface
     virtual void newBlockFilter(std::string_view _groupID, RespFunc _respFunc) = 0;
     virtual void newPendingTransactionFilter(std::string_view _groupID, RespFunc _respFunc) = 0;
@@ -300,6 +307,17 @@ protected:
     void getGroupNodeInfoI(const Json::Value& _req, RespFunc _respFunc)
     {
         getGroupNodeInfo(toView(_req[0u]), toView(_req[1u]), std::move(_respFunc));
+    }
+    // BLS interfaces
+    void addGroupPublicKeyI(const Json::Value& _req, RespFunc _respFunc)
+    {
+        addGroupPublicKey(toView(_req[0u]), _req[1u].asInt(),
+            toView(_req[2u]), std::move(_respFunc));
+    }
+    void submitBlsAggregatedSignatureI(const Json::Value& _req, RespFunc _respFunc)
+    {
+        submitBlsAggregatedSignature(toView(_req[0u]), toView(_req[1u]),
+            toView(_req[2u]), toView(_req[3u]), std::move(_respFunc));
     }
     // filter interface
     void newBlockFilterI(const Json::Value& _req, RespFunc _respFunc)
