@@ -146,10 +146,15 @@ private:
         }
         rebuildAggregator();
 
-        // also register with ALL FISCO-BCOS consensus nodes
-        for (const auto& node : fiscoNodes_) {
-            registerPubkeyToFisco(node, gid, pubkey);
-        }
+        // fire-and-forget: register pubkey to ALL FISCO-BCOS nodes in background
+        // (avoids blocking the HTTP handler thread)
+        std::string pubkeyCopy = pubkey;
+        auto nodes = fiscoNodes_;
+        std::thread([gid, pubkeyCopy, nodes]() {
+            for (const auto& node : nodes) {
+                registerPubkeyToFisco(node, gid, pubkeyCopy);
+            }
+        }).detach();
 
         std::ostringstream oss;
         oss << "{\"accepted\":true,\"registered\":" << registeredPubkeyCount()
@@ -200,31 +205,47 @@ private:
         int port = std::stoi(firstNode.substr(colon + 1));
 
         std::string lastHash;
+        int64_t lastBlockNum = 0;
         while (keepPolling_) {
-            std::string reqBody =
+            // Step 1: get latest block number
+            std::string bnReq =
                 R"({"jsonrpc":"2.0","method":"getBlockNumber","params":["group0"],"id":1})";
-            std::string resp = net::httpPost(host, port, "/", reqBody);
+            std::string bnResp = net::httpPost(host, port, "/", bnReq);
 
-            if (!resp.empty()) {
-                std::string hashReqBody =
-                    R"({"jsonrpc":"2.0","method":"getBlockHashByNumber","params":["group0","latest"],"id":2})";
-                std::string hashResp = net::httpPost(host, port, "/", hashReqBody);
+            if (!bnResp.empty()) {
+                // parse block number from response: {"result":123,...}
+                auto rpos = bnResp.find("\"result\"");
+                if (rpos != std::string::npos) {
+                    auto valStart = rpos + 9; // skip "result":
+                    auto valEnd = bnResp.find_first_of(",}\n", valStart);
+                    std::string numStr = bnResp.substr(valStart, valEnd - valStart);
+                    int64_t bn = 0;
+                    try { bn = std::stoll(numStr); } catch (...) {}
 
-                std::lock_guard<std::mutex> lock(mutex_);
-                auto hashPos = hashResp.find("\"result\"");
-                if (hashPos != std::string::npos) {
-                    auto start = hashResp.find('"', hashPos + 9);
-                    auto end = hashResp.find('"', start + 1);
-                    if (start != std::string::npos && end != std::string::npos) {
-                        std::string newHash = hashResp.substr(start + 1, end - start - 1);
-                        if (!newHash.empty() && newHash != lastHash) {
-                            lastHash = newHash;
-                            latestBlockHash_ = newHash;
-                            latestBlockNumber_++;
-                            std::cout << "[LeaderServer] new block #" << latestBlockNumber_
-                                      << " hash: " << latestBlockHash_ << std::endl;
-                            // reset signature collection for the new round
-                            aggregator_->reset();
+                    // Step 2: get block hash by number (only if new block)
+                    if (bn > 0 && bn > lastBlockNum) {
+                        std::ostringstream hashReq;
+                        hashReq << R"({"jsonrpc":"2.0","method":"getBlockHashByNumber","params":["group0","",)"
+                                << bn << R"(],"id":2})";
+                        std::string hashResp = net::httpPost(host, port, "/", hashReq.str());
+
+                        std::lock_guard<std::mutex> lock(mutex_);
+                        auto hashPos = hashResp.find("\"result\"");
+                        if (hashPos != std::string::npos) {
+                            auto start = hashResp.find('"', hashPos + 9);
+                            auto end = hashResp.find('"', start + 1);
+                            if (start != std::string::npos && end != std::string::npos) {
+                                std::string newHash = hashResp.substr(start + 1, end - start - 1);
+                                if (!newHash.empty()) {
+                                    lastHash = newHash;
+                                    lastBlockNum = bn;
+                                    latestBlockHash_ = newHash;
+                                    latestBlockNumber_ = bn;
+                                    std::cout << "[LeaderServer] new block #" << bn
+                                              << " hash: " << latestBlockHash_ << std::endl;
+                                    aggregator_->reset();
+                                }
+                            }
                         }
                     }
                 }
@@ -316,9 +337,19 @@ inline bool LeaderHttpServer::registerPubkeyToFisco(
          << blsGroupId << R"(,")" << pubkeyHex << R"("],"id":1})";
 
     std::string resp = net::httpPost(host, port, "/", body.str());
+    if (resp.empty()) {
+        std::cout << "[LeaderServer] addGroupPublicKey(group=" << blsGroupId
+                  << ") to " << fiscoNode << " ✗ (network error)" << std::endl;
+        return false;
+    }
     bool ok = (resp.find("\"code\":0") != std::string::npos);
-    std::cout << "[LeaderServer] addGroupPublicKey(group=" << blsGroupId
-              << ") to " << fiscoNode << (ok ? " ✓" : " ✗") << std::endl;
+    if (!ok) {
+        std::cout << "[LeaderServer] addGroupPublicKey(group=" << blsGroupId
+                  << ") to " << fiscoNode << " ✗ response: " << resp << std::endl;
+    } else {
+        std::cout << "[LeaderServer] addGroupPublicKey(group=" << blsGroupId
+                  << ") to " << fiscoNode << " ✓" << std::endl;
+    }
     return ok;
 }
 
