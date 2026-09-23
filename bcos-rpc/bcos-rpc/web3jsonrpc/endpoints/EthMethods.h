@@ -85,7 +85,10 @@ enum class EthMethod
     eth_getLogs,
     eth_maxPriorityFeePerGas,
     eth_getProof,
-    miner_setMaxDASize
+    miner_setMaxDASize,
+    debug_dbGet,
+    debug_getRawHeader,
+    debug_executePayload
 };
 
 [[maybe_unused]] static std::string methodString(EthMethod _method)
