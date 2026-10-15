@@ -204,9 +204,22 @@ jobs:
             -DWITH_TARS_SERVICES=OFF -DTOOL=OFF \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DVCPKG_TARGET_TRIPLET=x64-linux-release ..
+      # This workflow has no pull_request trigger (manual + nightly only), so saving here is a
+      # legitimate refresh; save as soon as configure finishes installing vcpkg.
+      - name: Save vcpkg cache
+        uses: actions/cache/save@v4
+        with:
+          path: build/vcpkg_installed
+          key: vcpkg-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'ports/**') }}-${{ steps.vcpkg-revision.outputs.revision }}-${{ runner.os }}-${{ runner.arch }}-ubuntu-26.04-cache-key-v4
 
       - name: Build fisco-bcos
         run: cmake --build build --target fisco-bcos
+
+      - name: Save ccache
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-l2-ubuntu-26.04-${{ runner.arch }}-v1-${{ github.run_id }}
 
       - name: ccache stats
         # always(): the hit rate and cache size are the evidence for the cap sizing, and a
@@ -228,17 +241,3 @@ jobs:
           BIN_DIR: ${{ github.workspace }}/.ci-c2-bins
           FISCO_BIN: ${{ github.workspace }}/build/fisco-bcos-air/fisco-bcos
           SKIP_FISCO_BUILD: "1"
-      # Cache save split from restore. This workflow has no pull_request trigger (manual +
-      # nightly only), so its saves are always legitimate refreshes, not PR churn.
-      - name: Save vcpkg cache
-        if: success()
-        uses: actions/cache/save@v4
-        with:
-          path: build/vcpkg_installed
-          key: vcpkg-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'ports/**') }}-${{ steps.vcpkg-revision.outputs.revision }}-${{ runner.os }}-${{ runner.arch }}-ubuntu-26.04-cache-key-v4
-      - name: Save ccache
-        if: success()
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ github.workspace }}/.ccache
-          key: ccache-l2-ubuntu-26.04-${{ runner.arch }}-v1-${{ github.run_id }}

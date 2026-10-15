@@ -169,10 +169,52 @@ jobs:
           mkdir build -Force
           cd build
           cmake -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel -DALLOCATOR=default -DTESTS=OFF -DFULLNODE=OFF -DWITH_LIGHTNODE=OFF -DWITH_TARS_SERVICES=OFF -DWITH_CPPSDK=ON -DTOOL=OFF -DVCPKG_TARGET_TRIPLET=x64-windows-static-release ..
+      # vcpkg finishes installing during configure, so the dependency tree is complete here —
+      # trim it and SAVE immediately, without waiting for the (long, flaky) build/test tail. A
+      # PR never saves (it only restores); a base-branch push/release saves as soon as deps are
+      # ready, so a failed build/test can no longer starve the vcpkg cache (that starvation is
+      # exactly what was evicting vcpkg and forcing 55-minute from-source rebuilds).
+      - name: Reduce vcpkg cache size
+        if: matrix.os != 'windows-2025'
+        run: |
+          set -euo pipefail
+          echo "=== Before cleanup ==="
+          du -sh build/vcpkg_installed 2>/dev/null  || true
+
+          # 1) Remove only debug libraries — keep debug metadata/includes intact
+          echo "Removing debug libraries..."
+          find build/vcpkg_installed -path '*/debug/lib/*' \( -name "*.a" -o -name "*.so" -o -name "*.so.*" -o -name "*.dylib" \) -print -delete 2>/dev/null || true
+
+          # 2) Strip release static libs (remove debug info, keep symbols needed for linking)
+          echo "Stripping release static libraries..."
+          find build/vcpkg_installed \( -name "*.a" -o -name "*.dylib" \) -print -exec strip -S {} \; 2>/dev/null || true
+
+          # 3) Remove per-package build workdirs if present (already excluded from cache, paranoia)
+          rm -rf build/vcpkg_installed/*/src 2>/dev/null || true
+
+          echo "=== After cleanup ==="
+          du -sh build/vcpkg_installed 2>/dev/null || true
+      - name: Save vcpkg cache
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ github.workspace }}/build/vcpkg_installed
+          key: vcpkg-${{ hashFiles( 'vcpkg.json', 'vcpkg-configuration.json', 'ports/**' ) }}-${{ steps.vcpkg-revision.outputs.revision }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-cache-key-v4
       - name: Build
         run: |
           cd build
           cmake --build .
+      # ccache fills during Build; save it right after, independent of the test tail (this is
+      # what a success() guard at the very end used to block — a failed test or EEST run would
+      # discard the whole cache). The save only runs if Build itself succeeded (default step
+      # semantics), so a failed build cannot poison the cache with a half-written tree.
+      - name: Save ccache
+        if: github.event_name != 'pull_request' && matrix.os != 'windows-2025'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-${{ matrix.os }}-${{ runner.arch }}-v1-${{ github.run_id }}
       - name: ccache stats
         # always(): the hit rate and cache size are the evidence for the cache sizing, and a
         # failed or timed-out build is exactly the run whose numbers are wanted.
@@ -282,26 +324,6 @@ jobs:
           pip3 install --break-system-packages --quiet requests 2>/dev/null || true
           # Run engine API integration test (curl smoke + Python mock CL)
           bash tools/engine_integration_test.sh build 8551
-      - name: Reduce vcpkg cache size
-        if: matrix.os != 'windows-2025'
-        run: |
-          set -euo pipefail
-          echo "=== Before cleanup ==="
-          du -sh build/vcpkg_installed 2>/dev/null  || true
-
-          # 1) Remove only debug libraries — keep debug metadata/includes intact
-          echo "Removing debug libraries..."
-          find build/vcpkg_installed -path '*/debug/lib/*' \( -name "*.a" -o -name "*.so" -o -name "*.so.*" -o -name "*.dylib" \) -print -delete 2>/dev/null || true
-
-          # 2) Strip release static libs (remove debug info, keep symbols needed for linking)
-          echo "Stripping release static libraries..."
-          find build/vcpkg_installed \( -name "*.a" -o -name "*.dylib" \) -print -exec strip -S {} \; 2>/dev/null || true
-
-          # 3) Remove per-package build workdirs if present (already excluded from cache, paranoia)
-          rm -rf build/vcpkg_installed/*/src 2>/dev/null || true
-
-          echo "=== After cleanup ==="
-          du -sh build/vcpkg_installed 2>/dev/null || true
       - name: Set packaging variables
         if: github.event_name == 'release' && matrix.os != 'windows-2025' && matrix.os != 'ubuntu-26.04-static'
         id: pkgvars
@@ -351,23 +373,6 @@ jobs:
         with:
           files: |
             ${{ steps.pkgvars.outputs.pkg_name }}
-      # Cache SAVE is deliberately split from restore (actions/cache/restore above) so a PR
-      # never writes: only push (merge to the base branch) and release refresh the entries, and
-      # a PR's restore falls back to the base branch's most recent entry via the key prefix.
-      # success() keeps a failed build from clobbering a good cache with a partial one.
-      - name: Save vcpkg cache
-        if: github.event_name != 'pull_request' && success()
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ${{ github.workspace }}/build/vcpkg_installed
-          key: vcpkg-${{ hashFiles( 'vcpkg.json', 'vcpkg-configuration.json', 'ports/**' ) }}-${{ steps.vcpkg-revision.outputs.revision }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.os }}-cache-key-v4
-      - name: Save ccache
-        if: github.event_name != 'pull_request' && matrix.os != 'windows-2025' && success()
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ github.workspace }}/.ccache
-          key: ccache-${{ matrix.os }}-${{ runner.arch }}-v1-${{ github.run_id }}
 
   coverage:
     name: Coverage
@@ -442,10 +447,31 @@ jobs:
           mkdir -p build
           cd build
           CC=gcc-16 CXX=g++-16 cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTESTS=ON -DCOVERAGE=ON -DWITH_LIGHTNODE=ON -DWITH_CPPSDK=ON -DWITH_TARS_SERVICES=OFF -DTOOLS=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DVCPKG_TARGET_TRIPLET=x64-linux-release ..
+      # Save vcpkg as soon as configure finishes installing it (no waiting for the flaky
+      # instrumented test tail).
+      - name: Save vcpkg cache
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ github.workspace }}/vcpkg
+            ${{ github.workspace }}/build/vcpkg_installed
+            !${{ github.workspace }}/vcpkg/.git
+            !${{ github.workspace }}/vcpkg/buildtrees
+            !${{ github.workspace }}/vcpkg/packages
+            !${{ github.workspace }}/vcpkg/downloads
+          key: vcpkg-${{ hashFiles( 'vcpkg.json' ) }}-${{ hashFiles( 'vcpkg-configuration.json' ) }}-${{ runner.os }}-${{ runner.arch }}-cache-key-v1
       - name: Build
         run: |
           cd build
           cmake --build . --parallel 3
+      # Save ccache right after Build, independent of the (2-3x slower, flaky) test tail.
+      - name: Save ccache
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-coverage-ubuntu-26.04-${{ runner.arch }}-v1-${{ github.run_id }}
       - name: ccache stats
         # always(): see the build matrix — stats must survive a failed/timed-out build.
         if: always()
@@ -528,25 +554,6 @@ jobs:
             build/coverage.info
             build/pr-number.txt
           retention-days: 7
-      # Save split from restore: PRs never write, only base-branch push/release refresh.
-      - name: Save vcpkg cache
-        if: github.event_name != 'pull_request' && success()
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ${{ github.workspace }}/vcpkg
-            ${{ github.workspace }}/build/vcpkg_installed
-            !${{ github.workspace }}/vcpkg/.git
-            !${{ github.workspace }}/vcpkg/buildtrees
-            !${{ github.workspace }}/vcpkg/packages
-            !${{ github.workspace }}/vcpkg/downloads
-          key: vcpkg-${{ hashFiles( 'vcpkg.json' ) }}-${{ hashFiles( 'vcpkg-configuration.json' ) }}-${{ runner.os }}-${{ runner.arch }}-cache-key-v1
-      - name: Save ccache
-        if: github.event_name != 'pull_request' && success()
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ github.workspace }}/.ccache
-          key: ccache-coverage-ubuntu-26.04-${{ runner.arch }}-v1-${{ github.run_id }}
 
   # Dedicated, lightweight leg for the OP-Stack L2 mode. Kept OUT of the 5-OS
   # `build` matrix on purpose: multiplying that matrix by an l2 dimension would
@@ -620,10 +627,23 @@ jobs:
           mkdir -p build
           cd build
           CC=gcc-16 CXX=g++-16 cmake -G Ninja -DCMAKE_BUILD_TYPE=MinSizeRel -DLINKER=mold -DTESTS=ON -DCOVERAGE=OFF -DWITH_L2_CONTRACTS=ON -DWITH_LIGHTNODE=ON -DWITH_CPPSDK=ON -DWITH_TARS_SERVICES=OFF -DTOOL=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DVCPKG_TARGET_TRIPLET=x64-linux-release ..
+      - name: Save vcpkg cache
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ github.workspace }}/build/vcpkg_installed
+          key: vcpkg-${{ hashFiles( 'vcpkg.json', 'vcpkg-configuration.json', 'ports/**' ) }}-${{ steps.vcpkg-revision.outputs.revision }}-${{ runner.os }}-${{ runner.arch }}-ubuntu-26.04-cache-key-v4
       - name: Build
         run: |
           cd build
           cmake --build .
+      - name: Save ccache
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-l2-ubuntu-26.04-${{ runner.arch }}-v1-${{ github.run_id }}
       - name: ccache stats
         # always(): see the build matrix — stats must survive a failed/timed-out build.
         if: always()
@@ -651,20 +671,6 @@ jobs:
           name: fisco-bcos-l2-ubuntu
           path: build/fisco-bcos-air/fisco-bcos
           retention-days: 1
-      # Save split from restore: PRs never write, only base-branch push/release refresh.
-      - name: Save vcpkg cache
-        if: github.event_name != 'pull_request' && success()
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            ${{ github.workspace }}/build/vcpkg_installed
-          key: vcpkg-${{ hashFiles( 'vcpkg.json', 'vcpkg-configuration.json', 'ports/**' ) }}-${{ steps.vcpkg-revision.outputs.revision }}-${{ runner.os }}-${{ runner.arch }}-ubuntu-26.04-cache-key-v4
-      - name: Save ccache
-        if: github.event_name != 'pull_request' && success()
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ github.workspace }}/.ccache
-          key: ccache-l2-ubuntu-26.04-${{ runner.arch }}-v1-${{ github.run_id }}
 
   # Full-stack C2 devnet e2e. Reuses the fisco-bcos binary built by
   # l2_unit_suites (artifact) so this job skips vcpkg configure + C++ build.
